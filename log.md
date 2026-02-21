@@ -850,11 +850,48 @@ SENTIMENT_SUMMARY:
 #### 6. Added Production Infrastructure
 - `from __future__ import annotations` — PEP 604 compatibility.
 - `logging.getLogger(__name__)` — module-level logger.
-- `GenerateContentConfig` with `temperature=AGENT_TEMPERATURE` (0.2) and `max_output_tokens=MAX_OUTPUT_TOKENS * 2` (4096).
+- `GenerateContentConfig` with `temperature=AGENT_TEMPERATURE` (0.2) and `max_output_tokens=4096`.
 - Type hints on all module-level variables.
 - `logger.debug` for instruction load confirmation.
 - `logger.info` for agent initialization with all session keys logged.
 - Standalone `if __name__ == "__main__"` test block printing model, reads, writes, tools.
+
+---
+
+### [2026-02-22] Session 12 — BearAgent Hardening (`agents/bear_agent.py`)
+
+#### 1. Hardcoded `_BEAR_MAX_OUTPUT_TOKENS`
+- **Problem**: `_BEAR_MAX_OUTPUT_TOKENS: int = MAX_OUTPUT_TOKENS * 2` — if `MAX_OUTPUT_TOKENS` changes in `config.py` (e.g., to 4096), BearAgent would silently jump to 8192 tokens.
+- **Fix**: Changed to `_BEAR_MAX_OUTPUT_TOKENS: int = 4096` — hardcoded, decoupled from config drift.
+
+#### 2. Cleaner `logger.info` Output
+- **Problem**: `logger.info` listed all five session keys — verbose and noisy during orchestrator runs.
+- **Fix**: Replaced with `"BearAgent initialized | model=%s | temperature=%.2f | tokens=%d"` — logs model, temperature, and token budget. Cleaner for production trace logs.
+
+---
+
+### [2026-02-22] Session 13 — BearAgent E2E Integration Test (`test_bear_agent.py`)
+
+#### 1. Created `test_bear_agent.py`
+- Full 5-step pipeline integration test: `quant_engine_tool()` → QuantAgent → SentimentAgent → BullAgent → BearAgent.
+- Uses real market data (RELIANCE), nothing mocked.
+- Follows the production pattern established in `test_bull_agent.py`.
+
+#### 2. Test Structure (10 Steps)
+- **Step 1**: Generate quant snapshot via `quant_engine_tool("RELIANCE")`, validate essential fields (ticker, regime, price, atr).
+- **Step 2**: Create `InMemorySessionService` session with `KEY_QUANT_SNAPSHOT` in state.
+- **Step 3**: Run QuantAgent via `Runner.run_async()`, verify `KEY_QUANT_ANALYSIS` written.
+- **Step 4**: Run SentimentAgent, verify `KEY_SENTIMENT` written.
+- **Step 5**: Run BullAgent, verify `KEY_BULL_THESIS` written.
+- **Step 6**: Run BearAgent, verify `KEY_BEAR_THESIS` written.
+- **Step 7**: Validate BearAgent output format — case-insensitive substring match for 7 required sections: BEAR_THESIS, Quant Weaknesses, Sentiment Risks, Downside Catalysts, Bull Case Flaws, Why Bears Could Be Right, Conviction.
+- **Step 8**: Print full output for all 5 pipeline stages (snapshot JSON, quant analysis, sentiment, bull thesis, bear thesis).
+- **Step 9**: Print validation summary with per-section ✓/✗ marks and model used.
+- **Step 10**: Exit with code 0 (pass), 1 (key missing / runtime error), or 2 (sections missing).
+
+#### 3. Error Handling
+- Catches `ValueError`, `RuntimeError`, `KeyError` at top level.
+- Logs error and prints failure card before `sys.exit(1)`.
 
 ---
 
