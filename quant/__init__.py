@@ -8,12 +8,16 @@ Usage:
     from quant import fetch_ohlcv, compute_indicators, classify_regime
 """
 
-from .data_fetcher import fetch_ohlcv
+from .data_fetcher import fetch_ohlcv, fetch_multiple, fetch_nifty, fetch_banknifty, MarketData
 from .indicators import compute_indicators
 from .regime_classifier import classify_regime, RegimeSnapshot
 
 __all__ = [
     "fetch_ohlcv",
+    "fetch_multiple",
+    "fetch_nifty",
+    "fetch_banknifty",
+    "MarketData",
     "compute_indicators",
     "classify_regime",
     "RegimeSnapshot",
