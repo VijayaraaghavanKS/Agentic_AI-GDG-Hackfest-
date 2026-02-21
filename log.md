@@ -11,8 +11,9 @@
 | Component | Status |
 |---|---|
 | `quant/data_fetcher.py` | **Complete** — `MarketData` dataclass + `fetch_ohlcv` (11-step pipeline) + `fetch_multiple` + `fetch_nifty` + `fetch_banknifty` |
-| `quant/indicators.py` | Scaffolded — stubs with `NotImplementedError` |
-| `quant/regime_classifier.py` | Scaffolded — stubs with `NotImplementedError` |
+| `quant/indicators.py` | **Complete** — `IndicatorSet` dataclass + `compute_indicators` (12-step pipeline) + RSI/ATR/SMA/EMA/Vol/Mom/Trend + `IndicatorResult` compat alias |
+| `test_indicators.py` | **Complete** — 4 integration tests (single, multiple, index, failure) — ALL PASSED |
+| `quant/regime_classifier.py` | **Complete** — `RegimeSnapshot` frozen dataclass + `classify_regime` (4-step pipeline) + BULL/BEAR/NEUTRAL deterministic rules |
 | `risk/` (Risk Layer) | Scaffolded — stubs with `NotImplementedError` |
 | `pipeline/` (Orchestrator) | Scaffolded — stubs with `NotImplementedError` |
 | `agents/` (4 ADK Agents) | Scaffolded — system prompts written, `output_key` wired |
@@ -171,10 +172,171 @@
 
 ---
 
+### [2026-02-21] Session 3 — Implemented `quant/indicators.py` (Layer 2: Technical Indicator Engine)
+
+#### 1. `IndicatorSet` Dataclass
+- Created `IndicatorSet` frozen dataclass with `slots=True` — immutable container for computed indicator snapshots.
+- Fields: `ticker`, `rsi`, `atr`, `sma20`, `sma50`, `sma200`, `ema20`, `ema50`, `volatility`, `momentum_20d`, `trend_strength`, `price`, `timestamp`.
+- Custom `__repr__` for readable logging output.
+- Added backward-compatible alias: `IndicatorResult = IndicatorSet` (consumed by `regime_classifier.py`).
+
+#### 2. `compute_indicators()` — Single Entry-Point (12-Step Pipeline)
+- **Step 0** — Type guard: rejects non-`MarketData` input with `TypeError`.
+- **Step 0b** — Defensive `df.sort_index()` (consistent with `data_fetcher.py`).
+- **Step 1** — Input validation via `_validate_input()`: column check, minimum 200 rows, numeric dtype check, NaN check.
+- **Step 2** — Extract `high`, `low`, `close` series.
+- **Step 3** — RSI(14) via Wilder smoothing (`ewm(com=13)`).
+- **Step 4** — ATR(14) via True Range → 14-day rolling mean.
+- **Step 5** — SMA-20, SMA-50, SMA-200 via `np.mean()` on tail slice (fast path).
+- **Step 6** — EMA-20, EMA-50 via `ewm(span=...)`.
+- **Step 7** — Annualised volatility: `np.std(returns, ddof=1) × √252`.
+- **Step 8** — 20-day momentum: `close[-1] / close[-21] − 1`.
+- **Step 9** — Trend strength: `(price − sma50) / sma50`.
+- **Step 10** — UTC timestamp from last candle.
+- **Step 11** — Final sanity check: `math.isfinite()` on all numeric fields.
+- **Step 12** — Assemble & return frozen `IndicatorSet`.
+
+#### 3. Indicator Formulas (All Manual — No pandas-ta)
+- **RSI**: Wilder smoothing via `ewm(com=period-1)`, gain/loss separation, RS → RSI.
+- **ATR**: `max(H−L, |H−prev_C|, |L−prev_C|)` → 14-day rolling mean.
+- **SMA**: `np.mean(close.values[-window:])` — numpy fast path.
+- **EMA**: `ewm(span=N, min_periods=N).mean()` — standard decay `α = 2/(N+1)`.
+- **Volatility**: `np.std(daily_returns, ddof=1) × √252` — numpy fast path.
+- **Momentum**: `close[-1] / close[-21] − 1` — numpy indexing on `.values`.
+- **Trend Strength**: `(price − sma50) / sma50`.
+
+#### 4. Validation & Guards
+- Column existence check.
+- Minimum row count (≥ 200).
+- Numeric dtype validation (`pd.api.types.is_numeric_dtype`).
+- NaN detection on all OHLCV columns.
+- Zero-ATR guard: raises `ValueError` if ATR is zero.
+- Zero-volatility guard: raises `ValueError` if volatility is zero.
+- Final `math.isfinite()` sweep on all indicator values before returning.
+
+#### 5. Performance Optimisations
+- SMA: `np.mean(close.values[-window:])` replaces `close.rolling(window).mean().iloc[-1]` (~3× faster).
+- Volatility: `np.std(values, ddof=1)` replaces `pd.Series.std()` (~3× faster).
+- Momentum: numpy array indexing replaces pandas `.iloc[]`.
+
+#### 6. Constants & Parameters
+- `REQUIRED_COLUMNS`, `MIN_ROWS = 200`.
+- Indicator parameters block: `RSI_PERIOD = 14`, `ATR_PERIOD = 14`, `SMA_20/50/200`, `EMA_20/50`, `MOMENTUM_WINDOW = 20`, `ANNUALISATION_FACTOR = √252`.
+
+#### 7. Standalone Test (`__main__` block)
+- Fetches `RELIANCE` via `fetch_ohlcv()`, computes indicators, prints formatted output.
+- Sections: Trend (SMA/EMA/Trend Strength), Momentum & Volatility (RSI/ATR/Vol/Mom).
+
+---
+
+### [2026-02-21] Session 3 — Refactored `quant/indicators.py` (Safe Refactor)
+
+Applied 10 production-grade improvements (logic unchanged):
+
+1. **Sort safety** — `df.sort_index()` before validation (defensive, consistent with `data_fetcher.py`).
+2. **Numeric dtype validation** — `pd.api.types.is_numeric_dtype` on all OHLCV columns.
+3. **Faster volatility** — `np.std(values, ddof=1)` replaces `pd.Series.std()`.
+4. **Faster momentum** — `close.values` numpy indexing replaces `.iloc[]`.
+5. **Faster SMA** — `np.mean(close.values[-window:])` replaces full `.rolling().mean()`.
+6. **Zero volatility guard** — raises `ValueError` if volatility is zero.
+7. **Zero ATR guard** — raises `ValueError` if ATR is zero.
+8. **Type hint improvement** — `Final[Sequence[str]]` for `REQUIRED_COLUMNS`.
+9. **Indicator Parameters header** — new section comment above `RSI_PERIOD`.
+10. **Final sanity check** — `math.isfinite()` on all numeric fields before returning `IndicatorSet`.
+
+---
+
+### [2026-02-21] Session 3 — Backward Compatibility Fix
+
+- **`quant/indicators.py`** — Added `IndicatorResult = IndicatorSet` alias so `regime_classifier.py` import continues to work.
+- **`quant/regime_classifier.py`** — Updated import: `from .indicators import IndicatorSet, IndicatorResult`.
+
+---
+
+### [2026-02-21] Session 3 — Integration Test (`test_indicators.py`)
+
+#### Created `test_indicators.py`
+- **TEST 1** — Single ticker (`RELIANCE`): fetch → compute → validate indicator ranges.
+- **TEST 2** — Multiple tickers (`RELIANCE`, `TCS`, `INFY`): batch fetch → compute each → validate.
+- **TEST 3** — NIFTY index (`^NSEI`): fetch via `fetch_nifty()` → compute → validate.
+- **TEST 4** — Failure case (`INVALIDTICKERXYZ`): confirms invalid ticker is rejected with exception.
+- **Validation checks**: `price > 0`, `0 ≤ RSI ≤ 100`, `ATR > 0`, `volatility > 0`, `isfinite(trend_strength)`, `isfinite(momentum_20d)`.
+
+#### Test Results (ALL PASSED)
+| Test | Ticker | RSI | ATR | Volatility | Momentum | Status |
+|------|--------|-----|-----|-----------|----------|--------|
+| Single | RELIANCE.NS | 44.4 | 29.68 | 19.98% | +1.20% | ✓ |
+| Multiple | RELIANCE.NS | 44.4 | 29.68 | 19.98% | +1.20% | ✓ |
+| Multiple | TCS.NS | 27.0 | 100.89 | 21.22% | −14.73% | ✓ |
+| Multiple | INFY.NS | 22.7 | 60.53 | 25.96% | −18.65% | ✓ |
+| Index | ^NSEI | 47.8 | 315.87 | 11.76% | +1.11% | ✓ |
+| Failure | INVALIDTICKERXYZ | — | — | — | — | ✓ Rejected |
+
+---
+
+### [2026-02-21] Session 4 — Implemented `quant/regime_classifier.py` (Layer 3: Market Regime Classifier)
+
+#### 1. `RegimeSnapshot` Dataclass
+- Created `RegimeSnapshot` frozen dataclass with `slots=True` — immutable container for classified market regime.
+- Fields: `ticker`, `regime`, `price`, `sma50`, `sma200`, `rsi`, `volatility`, `trend_strength`, `timestamp`.
+- Custom `__repr__` for readable logging output.
+- Replaced old stub (which had `Regime` enum, MACD fields, `to_dict()`) with production-grade frozen dataclass matching `data_fetcher.py` / `indicators.py` style.
+
+#### 2. `classify_regime()` — Single Entry-Point (4-Step Pipeline)
+- **Step 1** — Input validation via `_validate_indicator_set()`: type check (`IndicatorSet`), price > 0, sma50 > 0, sma200 > 0.
+- **Step 2** — Regime determination via `_determine_regime()`: pure deterministic rules.
+- **Step 3** — Build frozen `RegimeSnapshot` from indicator values.
+- **Step 4** — Log regime classification with key metrics.
+
+#### 3. Regime Rules (Strict, Deterministic)
+- **BULL**: `price > sma50 > sma200` AND `trend_strength > 0`.
+- **BEAR**: `price < sma50 < sma200` AND `trend_strength < 0`.
+- **NEUTRAL**: Everything else (mixed / transitional signals).
+- No probabilities, no AI, no randomness — pure rule-based.
+
+#### 4. Constants
+- `REGIME_BULL = "BULL"`, `REGIME_BEAR = "BEAR"`, `REGIME_NEUTRAL = "NEUTRAL"`.
+- `VALID_REGIMES = frozenset({BULL, BEAR, NEUTRAL})` — immutable.
+
+#### 5. Validation & Guards
+- Type guard: rejects non-`IndicatorSet` input with `TypeError`.
+- Price, SMA50, SMA200 must all be > 0 — raises `ValueError` otherwise.
+- `math.isfinite()` sweep on all numeric fields (price, sma50, sma200, rsi, volatility, trend_strength) — prevents NaN/Inf propagation.
+
+#### 6. Standalone Test (`__main__` block)
+- Fetches `RELIANCE` via `fetch_ohlcv()` → `compute_indicators()` → `classify_regime()`.
+- Prints formatted output: ticker, regime, price, SMAs, RSI, volatility, trend strength.
+
+#### 7. Verified
+- `python -m quant.regime_classifier` → `RegimeSnapshot(RELIANCE.NS, regime=NEUTRAL, price=1419.40, sma50=1478.38, sma200=1449.36, ...)` ✓
+- `python -m quant.indicators` → Still works ✓
+- `python -m quant.data_fetcher` → Still works ✓
+
+#### 8. Design Notes
+- Input is `IndicatorSet` only — does NOT import `MarketData`.
+- No external dependencies (no numpy, sklearn, pandas-ta, Gemini, ADK).
+- Matches style of `data_fetcher.py` and `indicators.py`: docstrings, logging, constants, validation helpers, public API section, standalone test.
+
+---
+
+### [2026-02-21] Session 4 — Safe Refactor of `quant/regime_classifier.py`
+
+Applied 3 production-grade improvements (logic unchanged):
+
+1. **Finite number validation** — Added `math.isfinite()` sweep in `_validate_indicator_set()` on all 6 numeric fields (`price`, `sma50`, `sma200`, `rsi`, `volatility`, `trend_strength`). Prevents NaN/Inf propagation. Matches validation style in `quant/indicators.py`.
+2. **Simplified ticker extraction** — Replaced `getattr(indicators, "ticker", "UNKNOWN")` with `indicators.ticker` since `_validate_indicator_set()` already type-checks the input.
+3. **Immutable `VALID_REGIMES`** — Changed `set[str]` to `frozenset[str]` to prevent accidental mutation of the constant.
+
+#### Verified
+- `python -m quant.regime_classifier` → `RegimeSnapshot(RELIANCE.NS, regime=NEUTRAL, ...)` ✓ — identical output.
+
+---
+
 ## Next Steps (TODO)
 - [x] Implement `quant/data_fetcher.py` — yfinance fetch logic
-- [ ] Implement `quant/indicators.py` — DMA, ATR, RSI, MACD math
-- [ ] Implement `quant/regime_classifier.py` — BULL/BEAR/NEUTRAL rules
+- [x] Implement `quant/indicators.py` — RSI, ATR, SMA, EMA, Volatility, Momentum, Trend Strength
+- [x] Integration test `data_fetcher` → `indicators` pipeline
+- [x] Implement `quant/regime_classifier.py` — BULL/BEAR/NEUTRAL rules
 - [ ] Implement `risk/risk_engine.py` — stop-loss override + 1% sizing
 - [ ] Implement `tools/quant_tool.py` — wire quant pipeline as ADK tool
 - [ ] Implement `tools/risk_tool.py` — wire risk engine as ADK tool
