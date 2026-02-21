@@ -648,6 +648,66 @@ Three targeted improvements — no formula or behavior changes.
 
 ---
 
+### [2026-02-21] Session 8 — Implemented `tools/risk_tool.py` (ADK Risk Enforcement Adapter – Step 6)
+
+#### 1. `risk_enforcement_tool()` — ADK-Compatible Tool Function
+- Production-grade ADK adapter wrapping `quant/risk_engine.apply_risk_limits()`.
+- Signature: `risk_enforcement_tool(cio_proposal: Dict, quant_snapshot: Dict, portfolio_equity: float = DEFAULT_PORTFOLIO_EQUITY) -> Dict`.
+- ADK-compatible: usable as `tools=[risk_enforcement_tool]`.
+- Deterministic only — NO LLM calls, NO Gemini, NO ADK reasoning inside the tool.
+
+#### 2. Pipeline Position
+```
+CIO Agent → KEY_CIO_PROPOSAL → risk_tool.py → risk_engine.apply_risk_limits() → KEY_FINAL_TRADE
+```
+
+#### 3. Five-Step Execution
+- **Step 1** — Validate CIO proposal (6 required fields: `ticker`, `action`, `entry`, `target`, `conviction_score`, `regime`) and quant snapshot (2 required fields: `atr`, `ticker`). Raises `ValueError` on missing keys.
+- **Step 2** — Extract ATR from quant snapshot. Raises `ValueError` if ATR ≤ 0.
+- **Step 3** — Delegate to `apply_risk_limits(cio_proposal, atr, portfolio_equity)` — all risk math in `quant/risk_engine.py`.
+- **Step 4** — Convert frozen `ValidatedTrade` dataclass to JSON-safe dict via `_trade_to_dict()`.
+- **Step 5** — Log outcome: `ACCEPTED size=N rr=X.X` or `KILLED reason`.
+
+#### 4. Validation Helpers
+- `_validate_proposal()` — checks 6 required CIO proposal fields.
+- `_validate_snapshot()` — checks `atr` and `ticker` exist, ATR > 0.
+- `_trade_to_dict()` — pure field copy from `ValidatedTrade` to dict (no computation).
+
+#### 5. Imports
+- `quant.risk_engine.apply_risk_limits`, `ValidatedTrade` — risk math.
+- `pipeline.session_keys.KEY_CIO_PROPOSAL`, `KEY_QUANT_SNAPSHOT`, `KEY_FINAL_TRADE` — state contract.
+- `config.DEFAULT_PORTFOLIO_EQUITY` — default equity for position sizing.
+
+#### 6. Design Rules Enforced
+- ✔ Deterministic only — no LLM calls.
+- ✔ No indicator calculation — delegates to quant engine.
+- ✔ No regime calculation — reads from snapshot.
+- ✔ No risk math — all in `risk_engine.py`.
+- ✔ Raises `ValueError` for missing keys, invalid ATR, invalid proposal.
+
+#### 7. Standalone Test (`__main__` block)
+- Tests BUY in BULL regime: `entry=2800, target=3100, ATR=30, equity=1,000,000`.
+- Prints JSON output with `json.dumps(trade, indent=2)`.
+
+#### 8. Verified
+- `python -m tools.risk_tool` → ACCEPTED, size=222, rr=6.67, stop=2755.0, total_risk=9990.0 ✓
+- Output matches expected JSON structure (13 fields) ✓
+- Logging: `RiskTool → validating CIO proposal`, `RiskTool → ACCEPTED size=222 rr=6.7` ✓
+
+---
+
+### [2026-02-21] Session 8b — Ticker Consistency Guard in `tools/risk_tool.py`
+
+#### 1. Added Ticker Mismatch Check
+- After field validation (Step 1), added guard: `cio_proposal["ticker"] != quant_snapshot["ticker"]` → raises `ValueError`.
+- Error message: `Ticker mismatch: CIO=<X> Quant=<Y>`.
+- Prevents subtle pipeline bugs where CIO proposal and quant snapshot refer to different tickers.
+
+#### 2. Verified
+- `python -m tools.risk_tool` → ACCEPTED, size=222, rr=6.67 ✓ — matching tickers pass through.
+
+---
+
 ## Next Steps (TODO)
 - [x] Implement `quant/data_fetcher.py` — yfinance fetch logic
 - [x] Implement `quant/indicators.py` — RSI, ATR, SMA, EMA, Volatility, Momentum, Trend Strength
@@ -660,7 +720,7 @@ Three targeted improvements — no formula or behavior changes.
 - [x] Delete `risk/` duplicate — all imports now use `quant.risk_engine`
 - [x] Update `tools/risk_tool.py` — import from `quant.risk_engine` instead of `risk`
 - [x] End-to-end integration test `test_risk_engine.py` — 5 tests, ALL PASSED
-- [ ] Implement `tools/risk_tool.py` — wire risk engine as ADK tool (logic, not just import)
+- [x] Implement `tools/risk_tool.py` — wire risk engine as ADK tool (adapter + validation + logging)
 - [ ] Implement `pipeline/orchestrator.py` — ADK InMemorySessionService + 6-step sequencing
 - [ ] Add Plotly chart to `app.py` — OHLCV candles + DMA lines + regime colour bands
 - [ ] Delete obsolete files (`researcher.py`, `analyst.py`, `decision_maker.py`, `market_tools.py`)
