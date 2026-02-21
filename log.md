@@ -16,7 +16,7 @@
 | `quant/regime_classifier.py` | **Complete** — `RegimeSnapshot` frozen dataclass + `classify_regime` (4-step pipeline) + BULL/BEAR/NEUTRAL deterministic rules |
 | `quant/risk_engine.py` | **Complete** — `ValidatedTrade` frozen dataclass + `apply_risk_limits` (10-step pipeline) + ATR stop override + 1% sizing + regime guard + conviction validation + NaN/Inf safety + negative-reward clamp |
 | `pipeline/` (Orchestrator) | Scaffolded — stubs with `NotImplementedError` |
-| `agents/` (4 ADK Agents) | Scaffolded — system prompts written, `output_key` wired |
+| `agents/cio_agent.py` | **Complete** — CIOAgent LlmAgent, final decision-maker, regime-driven trade proposal (BUY/SELL/HOLD), reads 5 session keys, writes KEY_CIO_PROPOSAL, structured plain-text output, ticker format guard, numeric stability guard, temp=0.2, no tools |
 | `agents/quant_agent.py` | **Complete** — QuantAgent LlmAgent, interprets quant snapshot, `output_key=KEY_QUANT_ANALYSIS`, temp=0.2, no tools |
 | `agents/sentiment_agent.py` | **Complete** — SentimentAgent LlmAgent, regime-aware news + macro sentiment via Google Search grounding, `output_key=KEY_SENTIMENT`, temp=0.2, tools=[google_search] |
 | `test_quant_agent.py` | **Complete** — E2E integration test: `quant_engine_tool` → session state → QuantAgent → validate output. Requires ADC credentials for Vertex AI. |
@@ -892,6 +892,63 @@ SENTIMENT_SUMMARY:
 #### 3. Error Handling
 - Catches `ValueError`, `RuntimeError`, `KeyError` at top level.
 - Logs error and prints failure card before `sys.exit(1)`.
+
+---
+
+### [2026-02-22] Session 14 — CIOAgent Production Rewrite (`agents/cio_agent.py`)
+
+#### 1. Full Agent Rewrite
+- **Problem**: Old CIOAgent was a scaffold with placeholder variables (`{quant_snapshot}`, `{sentiment_summary}`, `{bull_thesis}`, `{bear_thesis}`), no type hints, no logging, no `GenerateContentConfig`, missing reads from `KEY_QUANT_ANALYSIS`, and an output format that requested JSON — violating pipeline constraints.
+- **Fix**: Rewrote `agents/cio_agent.py` from scratch following the production BearAgent pattern.
+
+#### 2. Corrected Pipeline Position
+- Updated docstring from "Step 5" to "Step 6" to match actual pipeline order: QuantTool → QuantAgent → SentimentAgent → BullAgent → BearAgent → **CIOAgent** → RiskTool.
+
+#### 3. Added Missing Session Key Read
+- **Problem**: Old agent only read `KEY_QUANT_SNAPSHOT`, `KEY_SENTIMENT`, `KEY_BULL_THESIS`, `KEY_BEAR_THESIS` — missing `KEY_QUANT_ANALYSIS`.
+- **Fix**: Added `KEY_QUANT_ANALYSIS` to imports and instruction. CIOAgent now reads all five required keys.
+
+#### 4. Production-Grade System Instruction
+- Replaced vague 30-line JSON-output instruction with comprehensive ~280-line prompt covering:
+  - Explicit field listings for all five session keys (anti-hallucination).
+  - Regime-driven decision rules: BULL → prefer BUY, BEAR → prefer SELL, NEUTRAL → prefer HOLD.
+  - Quant consistency rules — ticker must match exactly, never invent prices.
+  - Entry rules — must be within ±2% of current price.
+  - Stop loss rules — directional logic (BUY: stop < entry, SELL: stop > entry, HOLD: stop = entry).
+  - Target rules — directional logic (BUY: target > entry, SELL: target < entry, HOLD: target = entry).
+  - Conviction guide with 5-tier scoring (0.0–1.0).
+  - HOLD rules — when signals conflict, all fields set to current price, low conviction.
+  - Output stability rules — all fields required, no skipped fields.
+  - Exact output format: CIO_DECISION with Action, Ticker, Entry, Raw Stop Loss, Target, Conviction, Reasoning.
+  - 600-word output cap.
+
+#### 5. Removed Constraint Violations
+- Removed JSON output format (CIO now outputs structured plain text parsed by RiskTool).
+- Removed `{variable}` placeholders (ADK does not substitute instruction strings).
+- Removed markdown fences instruction.
+
+#### 6. Added Production Infrastructure
+- `from __future__ import annotations` — PEP 604 compatibility.
+- `logging.getLogger(__name__)` — module-level logger.
+- `GenerateContentConfig` with `temperature=AGENT_TEMPERATURE` (0.2) and `max_output_tokens=4096`.
+- Type hints on all module-level variables.
+- `logger.debug` for instruction load confirmation.
+- `logger.info` for agent initialization with model, temperature, and token budget logged.
+- Standalone `if __name__ == "__main__"` test block printing model, reads, writes, tools.
+
+---
+
+### [2026-02-22] Session 14 — CIOAgent Hardening (Ticker + Numeric Stability)
+
+#### 1. Ticker Format Hallucination Guard
+- **Problem**: Gemini sometimes strips the `.NS` suffix from tickers (e.g., outputs `RELIANCE` instead of `RELIANCE.NS`). RiskTool expects an exact match against `KEY_QUANT_SNAPSHOT` ticker.
+- **Fix**: Added `Never modify ticker format.` to the Quant Consistency Rules section of the CIO instruction.
+- **Impact**: Prevents ticker mismatch bugs downstream in the risk engine.
+
+#### 2. Numeric Field Stability Guard
+- **Problem**: Gemini can output text like `"N/A"` or `"Unknown"` for numeric fields (Entry, Raw Stop Loss, Target, Conviction), causing RiskTool to crash on `float()` conversion.
+- **Fix**: Added `All numeric fields must be valid numbers. Do not output text values like "N/A" or "Unknown".` to the Output Stability Rules section.
+- **Impact**: Prevents `ValueError` crashes in the downstream parsing and risk enforcement pipeline.
 
 ---
 
