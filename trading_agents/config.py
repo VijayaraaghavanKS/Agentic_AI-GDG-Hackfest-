@@ -1,6 +1,37 @@
 """Risk rules, thresholds, and NSE-specific defaults."""
 
-GEMINI_MODEL = "gemini-2.5-flash"
+import os
+import google.genai as genai
+
+GEMINI_FALLBACK_MODELS = [
+    "gemini-3-flash-preview"
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.5-pro",
+]
+
+
+def _pick_available_model() -> str:
+    """Try each model with a minimal API call; return the first that responds."""
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        print("[config] WARNING: GOOGLE_API_KEY not set, defaulting to first model")
+        return GEMINI_FALLBACK_MODELS[0]
+
+    client = genai.Client(api_key=api_key)
+    for model in GEMINI_FALLBACK_MODELS:
+        try:
+            client.models.generate_content(model=model, contents="ping")
+            print(f"[config] Using model: {model}")
+            return model
+        except Exception as exc:
+            status = getattr(exc, "status_code", "") or type(exc).__name__
+            print(f"[config] {model} unavailable ({status}), trying next...")
+    print(f"[config] WARNING: all models failed, defaulting to {GEMINI_FALLBACK_MODELS[0]}")
+    return GEMINI_FALLBACK_MODELS[0]
+
+
+GEMINI_MODEL = _pick_available_model()
 
 # --------------- Risk management ---------------
 RISK_PER_TRADE = 0.01          # 1 % of portfolio per trade
