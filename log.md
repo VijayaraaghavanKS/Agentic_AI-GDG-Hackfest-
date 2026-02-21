@@ -789,6 +789,75 @@ SENTIMENT_SUMMARY:
 
 ---
 
+### [2026-02-21] Session 10 — BullAgent Instruction Hardening (`agents/bull_agent.py`)
+
+#### 1. Explicit State Field Descriptions
+- **Problem**: Instruction said "These contain: Deterministic market indicators / Quantitative interpretation / News and macro sentiment" — too vague for Gemini, increases hallucination risk.
+- **Fix**: Replaced with explicit field listings for each session key:
+  - `KEY_QUANT_SNAPSHOT`: ticker, price, regime, rsi, atr, moving averages, momentum, trend_strength, volatility, timestamp.
+  - `KEY_QUANT_ANALYSIS`: trend assessment, momentum view, volatility conditions, RSI interpretation, regime context, overall quant view.
+  - `KEY_SENTIMENT`: company sentiment, macro environment, sector conditions, key catalysts, market narrative, confidence score.
+- **Impact**: Reduces hallucination by grounding the LLM on exact available fields.
+
+#### 2. Quant Snapshot Safeguard Rule
+- **Problem**: Without explicit guardrails, Gemini sometimes invents bullish signals that contradict the actual data (e.g., claiming price is above moving averages when it is below).
+- **Fix**: Added four rules after the "construct best bullish argument" block:
+  - "Never contradict quant snapshot values."
+  - "If price is below moving averages, acknowledge it."
+  - "Then construct the bullish interpretation."
+  - "Do not invent bullish signals that contradict the data."
+- **Impact**: Forces the agent to acknowledge bearish data before making the bullish case — more credible output.
+
+#### 3. Deterministic Tone Rule
+- **Problem**: LLM output can vary in tone across runs — sometimes hype-heavy, sometimes conservative.
+- **Fix**: Added three tone directives to the "Important Rules" section:
+  - "Be precise and factual."
+  - "Avoid exaggerated language."
+  - "Avoid hype."
+- **Impact**: Improves consistency and reproducibility of output across runs.
+
+---
+
+### [2026-02-21] Session 11 — BearAgent Production Rewrite (`agents/bear_agent.py`)
+
+#### 1. Full Agent Rewrite
+- **Problem**: Old BearAgent was a scaffold with placeholder variables (`{quant_snapshot}`, `{sentiment_summary}`, `{bull_thesis}`), no type hints, no logging, no `GenerateContentConfig`, missing reads from `KEY_QUANT_ANALYSIS`, and an output format that requested price targets and JSON — violating pipeline constraints.
+- **Fix**: Rewrote `agents/bear_agent.py` from scratch following the production BullAgent pattern.
+
+#### 2. Corrected Pipeline Position
+- Updated docstring from "Step 4" to "Step 5" to match actual pipeline order: QuantTool → QuantAgent → SentimentAgent → BullAgent → **BearAgent** → CIOAgent → RiskTool.
+
+#### 3. Added Missing Session Key Read
+- **Problem**: Old agent only read `KEY_QUANT_SNAPSHOT`, `KEY_SENTIMENT`, `KEY_BULL_THESIS` — missing `KEY_QUANT_ANALYSIS`.
+- **Fix**: Added `KEY_QUANT_ANALYSIS` to imports and instruction. BearAgent now reads all four required keys.
+
+#### 4. Production-Grade System Instruction
+- Replaced vague 20-line instruction with comprehensive ~250-line prompt covering:
+  - Explicit field listings for all four session keys (anti-hallucination).
+  - Quant interpretation rules with acknowledge-then-challenge pattern.
+  - Sentiment interpretation rules with fragility-of-optimism framing.
+  - Bull thesis critique rules — must respond to BullAgent, not ignore it.
+  - Regime awareness rules (BULL/NEUTRAL/BEAR specific guidance).
+  - Output stability rules — all sections required, missing data stated clearly.
+  - Exact output format: Quant Weaknesses, Sentiment Risks, Downside Catalysts, Bull Case Flaws, Why Bears Could Be Right, Conviction (0–1).
+  - Anti-verbatim rule: "Do not repeat the Bull thesis verbatim. Summarize only the relevant parts when critiquing it." — prevents token waste and truncation.
+
+#### 5. Removed Constraint Violations
+- Removed `downside_target` from output format (no price targets allowed).
+- Removed JSON-like output format (no JSON output allowed).
+- Removed `{variable}` placeholders (ADK does not substitute instruction strings).
+
+#### 6. Added Production Infrastructure
+- `from __future__ import annotations` — PEP 604 compatibility.
+- `logging.getLogger(__name__)` — module-level logger.
+- `GenerateContentConfig` with `temperature=AGENT_TEMPERATURE` (0.2) and `max_output_tokens=MAX_OUTPUT_TOKENS * 2` (4096).
+- Type hints on all module-level variables.
+- `logger.debug` for instruction load confirmation.
+- `logger.info` for agent initialization with all session keys logged.
+- Standalone `if __name__ == "__main__"` test block printing model, reads, writes, tools.
+
+---
+
 ## Next Steps (TODO)
 - [x] Implement `quant/data_fetcher.py` — yfinance fetch logic
 - [x] Implement `quant/indicators.py` — RSI, ATR, SMA, EMA, Volatility, Momentum, Trend Strength
