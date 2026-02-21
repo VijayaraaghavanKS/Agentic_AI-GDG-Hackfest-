@@ -1,19 +1,19 @@
 """
 tools/risk_tool.py – ADK Tool Wrapper for the Risk Engine (Step 6)
 ===================================================================
-Thin ADK-compatible wrapper around risk/risk_engine.py.
+Thin ADK-compatible wrapper around quant/risk_engine.py.
 
 Intercepts the CIO agent's raw JSON proposal from session state at Step 6,
 applies the ATR-based stop-loss override and 1% position-sizing rule, and
 writes the final validated (or killed) trade back to session state.
 
-The raw math lives in risk/ and is independently testable without ADK.
-This file is ONLY the adapter.
+The raw math lives in quant/risk_engine.py and is independently testable
+without ADK.  This file is ONLY the adapter.
 
 TODO: Implement risk_enforcement_tool()
 """
 
-from risk import apply_risk_limits
+from quant.risk_engine import apply_risk_limits
 from pipeline.session_keys import KEY_CIO_PROPOSAL, KEY_FINAL_TRADE, KEY_QUANT_SNAPSHOT
 
 
