@@ -24,7 +24,7 @@
 | `test_risk_engine.py` | **Complete** — 5 E2E tests (normal BUY, bad RR, huge ATR, SELL, missing field) — ALL PASSED |
 | `tools/` (ADK Adapters) | Scaffolded — stubs with `NotImplementedError` |
 | `config.py` | **Complete** — 20-stock watchlist, index defaults, regime thresholds, fallback model list, risk params (6), intraday settings, session key re-exports (9 keys), agent settings |
-| `app.py` | Scaffolded — Streamlit layout with regime UI, debate panels, trade card |
+| `app.py` | **Complete** — ADK root agent exposing `root_agent` for `adk web .`, async `run_trading_pipeline` tool calling `run_pipeline()`, config-driven model (`GEMINI_MODEL`), formatted trade output, error handling with traceback |
 | `main.py` | Scaffolded — CLI entry point wired to Orchestrator |
 | `utils/helpers.py` | Complete — JSON parser, logger, formatters |
 | **Core logic implementation** | **Not started** |
@@ -1014,6 +1014,33 @@ STEP 6 — CIO Decision Complete
 STEP 7 — Risk Enforcement Complete
 Pipeline complete | ticker=RELIANCE.NS
 ```
+
+---
+
+### [2026-02-22] Session 5 — Production ADK Root Agent (`app.py`)
+
+#### 1. Replaced Streamlit Dashboard with ADK Root Agent
+- **Removed** entire Streamlit-based `app.py` (sidebar, `st.status`, Plotly placeholders, debate panels, trade card).
+- **Created** production ADK root agent in `app.py` for `adk web .` deployment.
+
+#### 2. Root Agent Architecture
+- **`root_agent`** — `google.adk.agents.Agent` instance exposed at module level.
+- **`model=GEMINI_MODEL`** — config-driven model (not hardcoded), consistent with all other agents.
+- **`description`** — "Regime-Aware Trading System."
+- **`instruction`** — Directs agent to accept ticker symbols and call the pipeline tool, returning results verbatim.
+
+#### 3. Pipeline Tool (`run_trading_pipeline`)
+- Async function registered as ADK tool via `tools=[run_trading_pipeline]`.
+- Accepts `ticker: str`, calls `await run_pipeline(ticker)` from `orchestrator.pipeline_runner`.
+- Extracts `result["final_trade"]` and formats output: Ticker, Action, Position Size, Stop Loss, Target, Risk Reward, Killed (+ Kill Reason if killed).
+- Error handling: catches all exceptions, returns formatted error message with full traceback.
+
+#### 4. Config-Driven Model Fix
+- Replaced hardcoded `model="gemini-2.0-flash"` with `from config import GEMINI_MODEL` / `model=GEMINI_MODEL`.
+- Matches all other agents (`quant_agent`, `sentiment_agent`, `bull_agent`, `bear_agent`, `cio_agent`).
+
+#### 5. Standalone Test
+- `if __name__ == "__main__": print("Root agent ready")` — verified: `python app.py` → `Root agent ready`.
 
 ---
 
