@@ -332,13 +332,77 @@ Applied 3 production-grade improvements (logic unchanged):
 
 ---
 
+### [2026-02-21] Session 5 — Implemented `tools/quant_tool.py` (ADK Quant Engine Adapter)
+
+#### 1. `quant_engine_tool()` — Single-Ticker ADK Tool
+- ADK-compatible function tool with automatic schema generation support.
+- Signature: `quant_engine_tool(ticker: str, period: str = "1y", interval: str = "1d") -> dict`.
+- Executes the full deterministic pipeline: `fetch_ohlcv()` → `compute_indicators()` → `classify_regime()`.
+- Returns a flat, JSON-safe dictionary with 14 fields: `ticker`, `price`, `regime`, `rsi`, `atr`, `sma20`, `sma50`, `sma200`, `ema20`, `ema50`, `momentum_20d`, `trend_strength`, `volatility`, `timestamp`.
+- Raises `ValueError` for invalid ticker / data issues, `RuntimeError` for network failures. Never returns error strings.
+- All numeric values rounded to 4 decimal places via `_snapshot_to_dict()`.
+
+#### 2. `quant_engine_batch_tool()` — Multi-Ticker ADK Tool
+- Signature: `quant_engine_batch_tool(tickers: list[str], period: str = "1y", interval: str = "1d") -> list[dict]`.
+- Uses `fetch_multiple()` for batch OHLCV fetching.
+- Computes indicators and classifies regime for each successful fetch.
+- Failing tickers are skipped with `logger.warning()` — returns partial results.
+- Logs batch completion summary (`N/M tickers succeeded`).
+
+#### 3. Internal Helper: `_snapshot_to_dict()`
+- Pure function that converts frozen `IndicatorSet` + `RegimeSnapshot` into a flat `dict`.
+- No computation — copies values verbatim from validated dataclasses.
+- Handles timezone-aware and naive timestamps for ISO 8601 formatting.
+
+#### 4. Logging
+- Module-level `logger = logging.getLogger(__name__)`.
+- Logs at each pipeline stage: "Fetching quant snapshot", "Indicators computed", "Regime classified → {REGIME}".
+
+#### 5. Standalone Test (`__main__` block)
+- Tests single-ticker for `RELIANCE`, `TCS`, `^NSEI` — prints JSON snapshot or failure.
+- Tests batch mode for all three tickers — prints summary table.
+
+#### 6. Design Notes
+- **Deterministic only** — no LLM / Gemini / ADK reasoning inside the tool.
+- **No calculations** — all maths delegated to `quant/` package.
+- **No mutation** — frozen dataclass inputs, dict output.
+- **No global state** — pure function calls.
+- **Coexists** with `trading_agents/tools/market_data.py` and `trading_agents/tools/technical.py` — does not modify or import them.
+- Replaced the `NotImplementedError` stub from Session 1.
+
+---
+
+### [2026-02-21] Session 5 — End-to-End Integration Test (`test_quant_engine.py`)
+
+#### Created `test_quant_engine.py`
+- **TEST 1** — Single ticker (`RELIANCE`): `fetch_ohlcv` → `compute_indicators` → `classify_regime` — validates price > 0, RSI range, ATR > 0, volatility > 0, finite momentum/trend, valid regime string.
+- **TEST 2** — `quant_engine_tool("RELIANCE")`: validates all 14 required snapshot keys (`ticker`, `price`, `regime`, `rsi`, `atr`, `sma20`, `sma50`, `sma200`, `ema20`, `ema50`, `momentum_20d`, `trend_strength`, `volatility`, `timestamp`), plus value sanity checks.
+- **TEST 3** — `quant_engine_batch_tool(["RELIANCE", "TCS", "INFY"])`: batch pipeline, prints summary table, validates ≥1 success.
+- **TEST 4** — Index ticker (`^NSEI`): full pipeline, validates RSI/ATR/volatility.
+- **TEST 5** — Failure test (`INVALID_TICKER_123`): confirms `ValueError`/`RuntimeError` is raised.
+- Exits `sys.exit(0)` on all pass, `sys.exit(1)` on any failure.
+
+#### Test Results (ALL PASSED)
+| Test | Ticker | Regime | Price | RSI | ATR | Volatility | Status |
+|------|--------|--------|-------|-----|-----|-----------|--------|
+| Single Pipeline | RELIANCE.NS | NEUTRAL | 1419.40 | 44.4 | 29.68 | 20.0% | ✓ |
+| quant_engine_tool | RELIANCE.NS | NEUTRAL | 1419.40 | 44.4 | 29.68 | 20.0% | ✓ |
+| Batch (1/3) | RELIANCE.NS | NEUTRAL | 1419.40 | 44.4 | — | 20.0% | ✓ |
+| Batch (2/3) | TCS.NS | BEAR | 2686.20 | 27.0 | — | 21.2% | ✓ |
+| Batch (3/3) | INFY.NS | NEUTRAL | 1353.20 | 22.7 | — | 26.0% | ✓ |
+| Index | ^NSEI | NEUTRAL | 25571.25 | 47.8 | 315.87 | 11.8% | ✓ |
+| Failure | INVALID_TICKER_123 | — | — | — | — | — | ✓ Rejected |
+
+---
+
 ## Next Steps (TODO)
 - [x] Implement `quant/data_fetcher.py` — yfinance fetch logic
 - [x] Implement `quant/indicators.py` — RSI, ATR, SMA, EMA, Volatility, Momentum, Trend Strength
 - [x] Integration test `data_fetcher` → `indicators` pipeline
 - [x] Implement `quant/regime_classifier.py` — BULL/BEAR/NEUTRAL rules
+- [x] Implement `tools/quant_tool.py` — wire quant pipeline as ADK tool
+- [x] End-to-end integration test `test_quant_engine.py` — full pipeline validation
 - [ ] Implement `risk/risk_engine.py` — stop-loss override + 1% sizing
-- [ ] Implement `tools/quant_tool.py` — wire quant pipeline as ADK tool
 - [ ] Implement `tools/risk_tool.py` — wire risk engine as ADK tool
 - [ ] Implement `pipeline/orchestrator.py` — ADK InMemorySessionService + 6-step sequencing
 - [ ] Add Plotly chart to `app.py` — OHLCV candles + DMA lines + regime colour bands
