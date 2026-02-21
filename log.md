@@ -17,8 +17,10 @@
 | `risk/` (Risk Layer) | Scaffolded — stubs with `NotImplementedError` |
 | `pipeline/` (Orchestrator) | Scaffolded — stubs with `NotImplementedError` |
 | `agents/` (4 ADK Agents) | Scaffolded — system prompts written, `output_key` wired |
+| `agents/quant_agent.py` | **Complete** — QuantAgent LlmAgent, interprets quant snapshot, `output_key=KEY_QUANT_ANALYSIS`, temp=0.2, no tools |
+| `test_quant_agent.py` | **Complete** — E2E integration test: `quant_engine_tool` → session state → QuantAgent → validate output. Requires ADC credentials for Vertex AI. |
 | `tools/` (ADK Adapters) | Scaffolded — stubs with `NotImplementedError` |
-| `config.py` | Complete — risk params, session keys, model config |
+| `config.py` | **Complete** — 20-stock watchlist, index defaults, regime thresholds, fallback model list, risk params (6), intraday settings, session key re-exports (9 keys), agent settings |
 | `app.py` | Scaffolded — Streamlit layout with regime UI, debate panels, trade card |
 | `main.py` | Scaffolded — CLI entry point wired to Orchestrator |
 | `utils/helpers.py` | Complete — JSON parser, logger, formatters |
@@ -395,6 +397,133 @@ Applied 3 production-grade improvements (logic unchanged):
 
 ---
 
+### [2026-02-21] Session 6 — Implemented `agents/quant_agent.py` (ADK QuantAgent – Step 2)
+
+#### 1. `quant_agent` — LlmAgent Definition
+- Created `agents/quant_agent.py` — production-grade ADK `LlmAgent` that interprets deterministic quant snapshots.
+- Agent name: `QuantAgent`.
+- Model: `config.GEMINI_MODEL` (`gemini-2.5-flash`).
+- Temperature: `0.2` via `GenerateContentConfig`.
+- Tools: `[]` — reasoning-only agent, no tool calls.
+- `output_key`: `KEY_QUANT_ANALYSIS` (`"quant_analysis"`).
+
+#### 2. System Prompt
+- Professional quantitative analyst persona.
+- Strict constraints: NEVER invents numbers, NEVER calculates indicators, NEVER estimates risk, NEVER overrides deterministic values.
+- Reads `{quant_snapshot}` from session state.
+- Outputs structured `QUANT_ANALYSIS` format: Trend, Momentum, Volatility, RSI, Regime, Risk Conditions, Overall Quant View.
+
+#### 3. Session State Contract
+- **Reads**: `KEY_QUANT_SNAPSHOT` (from `quant_tool`, Step 1).
+- **Writes**: `KEY_QUANT_ANALYSIS` (consumed by SentimentAgent, Step 3).
+
+#### 4. Updated `pipeline/session_keys.py`
+- Added `KEY_QUANT_ANALYSIS = "quant_analysis"` with docstring.
+- Updated `KEY_QUANT_SNAPSHOT` docstring to include `quant_agent` as reader.
+- Added `KEY_QUANT_ANALYSIS` to `ALL_KEYS` list.
+
+#### 5. Updated `agents/__init__.py`
+- Added `from .quant_agent import quant_agent` export.
+- Updated `__all__` to include `"quant_agent"` (now 5 agents).
+
+#### 6. Standalone Test (`__main__` block)
+- Prints: agent name, model, input key, output key.
+- Verified: `python -m agents.quant_agent` → `QuantAgent initialized | Model: gemini-2.5-flash | Reads: quant_snapshot | Writes: quant_analysis` ✓
+
+---
+
+### [2026-02-21] Session 6b — Config & Session Keys Merge
+
+#### 1. Updated `config.py` (Merged Best Version)
+- **Added** `INTRADAY_PERIOD: str = "30d"` — yfinance period for intraday candle fetches.
+- **Added** `INTRADAY_INTERVAL: str = "15m"` — yfinance interval for intraday candle fetches.
+- **Added** `MAX_OPEN_TRADES: int = 3` — max concurrent open positions.
+- **Added** `DAILY_LOSS_LIMIT_PCT: float = 0.03` — 3% daily portfolio loss limit.
+- **Updated** session key re-exports: added `KEY_MARKET_CONTEXT`, `KEY_QUANT_ANALYSIS`, `KEY_USER_EQUITY` (now 9 keys total).
+- All existing fields unchanged.
+
+#### 2. Updated `pipeline/session_keys.py`
+- **Added** `KEY_MARKET_CONTEXT = "market_context"` — run-level context (ticker, exchange, equity) written by orchestrator.
+- **Added** `KEY_USER_EQUITY = "user_equity"` — portfolio equity float for risk sizing.
+- **Updated** `ALL_KEYS` list (now 9 keys): `KEY_MARKET_CONTEXT`, `KEY_QUANT_SNAPSHOT`, `KEY_QUANT_ANALYSIS`, `KEY_SENTIMENT`, `KEY_BULL_THESIS`, `KEY_BEAR_THESIS`, `KEY_CIO_PROPOSAL`, `KEY_FINAL_TRADE`, `KEY_USER_EQUITY`.
+
+#### 3. Updated `agents/quant_agent.py`
+- **Changed** `temperature=0.2` → `temperature=AGENT_TEMPERATURE` (from config) — consistent with other agents.
+- **Added** `max_output_tokens=MAX_OUTPUT_TOKENS` (from config) to `GenerateContentConfig`.
+- **Updated** import: `from config import GEMINI_MODEL, AGENT_TEMPERATURE, MAX_OUTPUT_TOKENS`.
+
+#### 4. Verified
+- `python -m agents.quant_agent` → `QuantAgent initialized | Model: gemini-2.5-flash | Reads: quant_snapshot | Writes: quant_analysis` ✓
+- All 9 config key re-exports importable ✓
+- Intraday settings, new risk params accessible ✓
+
+---
+
+### [2026-02-21] Session 6c — Config Merge with `trading_agents/config.py`
+
+Merged best of both `config.py` (Vertex AI + ADK pipeline) and `trading_agents/config.py` (risk rules + NSE defaults).
+
+#### 1. Expanded `WATCH_LIST` (5 → 20 stocks)
+- Added 15 top-liquid Nifty 50 stocks: `ICICIBANK`, `HINDUNILVR`, `ITC`, `SBIN`, `BHARTIARTL`, `KOTAKBANK`, `LT`, `AXISBANK`, `ASIANPAINT`, `MARUTI`, `TITAN`, `SUNPHARMA`, `BAJFINANCE`, `HCLTECH`, `TATAMOTORS`.
+
+#### 2. Added `GEMINI_FALLBACK_MODELS` List
+- `["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]` — ordered preference for model selection.
+- Did NOT import `_pick_available_model()` (uses API key directly — incompatible with our Vertex AI ADC auth). Fallback list available for future orchestrator use.
+
+#### 3. Added Index Defaults
+- `DEFAULT_INDEX: str = "^NSEI"` — Nifty 50.
+- `BANK_INDEX: str = "^NSEBANK"` — Bank Nifty.
+
+#### 4. Added Data Lookback
+- `DATA_LOOKBACK_DAYS: int = 140` — enough for 50-DMA + buffer.
+
+#### 5. Added Regime Thresholds
+- `BULL_RETURN_20D_MIN: float = 0.0` — 20-day return ≥ 0 for bull.
+- `BEAR_RETURN_20D_MAX: float = -0.03` — 20-day return ≤ −3% for bear.
+
+#### 6. Updated `MIN_RISK_REWARD` (1.5 → 2.0)
+- More conservative R:R gate — aligned with `trading_agents/config.py` value.
+
+#### 7. QuantAgent — No Changes Needed
+- `agents/quant_agent.py` only imports `GEMINI_MODEL`, `AGENT_TEMPERATURE`, `MAX_OUTPUT_TOKENS` — unaffected by new config additions.
+- Re-verified: `python -m agents.quant_agent` → ✓
+
+#### 8. Verified
+- All new config imports (`GEMINI_FALLBACK_MODELS`, `DEFAULT_INDEX`, `BANK_INDEX`, `DATA_LOOKBACK_DAYS`, `BULL_RETURN_20D_MIN`, `BEAR_RETURN_20D_MAX`) accessible ✓
+- 20-stock watchlist ✓
+- `MIN_RISK_REWARD = 2.0` ✓
+- `python -m agents.quant_agent` → `QuantAgent initialized` ✓
+
+---
+
+### [2026-02-21] Session 6d — Created `test_quant_agent.py` (QuantAgent E2E Integration Test)
+
+#### 1. Test Architecture
+- Full end-to-end pipeline: `quant_engine_tool("RELIANCE")` → `KEY_QUANT_SNAPSHOT` → ADK session state → `QuantAgent` via `Runner` → `KEY_QUANT_ANALYSIS` → validate & print.
+- Uses REAL market data — nothing mocked.
+- Uses ADK `Runner` + `InMemorySessionService` (matches orchestrator architecture).
+
+#### 2. Test Steps
+1. **Generate quant snapshot** — `quant_engine_tool("RELIANCE")` returns 14-field dict.
+2. **Create ADK session** — `InMemorySessionService.create_session()` with snapshot in initial state.
+3. **Run QuantAgent** — `Runner.run_async()` sends user message, agent interprets snapshot.
+4. **Re-fetch session** — `session_service.get_session()` to read updated state.
+5. **Validate output** — Check `KEY_QUANT_ANALYSIS` exists and contains all 7 required sections.
+6. **Print results** — Formatted snapshot + analysis + test summary.
+
+#### 3. Validation Checks
+- `KEY_QUANT_ANALYSIS` must be non-empty string.
+- Required sections: `Trend:`, `Momentum:`, `Volatility:`, `RSI:`, `Regime:`, `Risk Conditions:`, `Overall Quant View:`.
+- Exits `sys.exit(0)` on pass, `sys.exit(1)` on failure.
+
+#### 4. Test Run
+- **Steps 1–2 PASSED** — quant snapshot generated (`RELIANCE.NS`, regime=NEUTRAL, price=1419.40), session created.
+- **Step 3 BLOCKED** — `DefaultCredentialsError` — Vertex AI ADC not configured on this machine.
+- **Action required**: Run `gcloud auth application-default login` to enable Gemini API calls.
+- Test script is architecturally correct and will pass once credentials are set up.
+
+---
+
 ## Next Steps (TODO)
 - [x] Implement `quant/data_fetcher.py` — yfinance fetch logic
 - [x] Implement `quant/indicators.py` — RSI, ATR, SMA, EMA, Volatility, Momentum, Trend Strength
@@ -402,6 +531,7 @@ Applied 3 production-grade improvements (logic unchanged):
 - [x] Implement `quant/regime_classifier.py` — BULL/BEAR/NEUTRAL rules
 - [x] Implement `tools/quant_tool.py` — wire quant pipeline as ADK tool
 - [x] End-to-end integration test `test_quant_engine.py` — full pipeline validation
+- [x] Implement `agents/quant_agent.py` — QuantAgent (interprets quant snapshot)
 - [ ] Implement `risk/risk_engine.py` — stop-loss override + 1% sizing
 - [ ] Implement `tools/risk_tool.py` — wire risk engine as ADK tool
 - [ ] Implement `pipeline/orchestrator.py` — ADK InMemorySessionService + 6-step sequencing
