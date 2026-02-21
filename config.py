@@ -1,8 +1,9 @@
 """
-config.py – Central configuration for the Stock Market AI Trading Agent.
+config.py – Central configuration for the Regime-Aware Trading Command Center.
 
 All team members import from here. Edit WATCH_LIST and TARGET_EXCHANGE
-to suit the current hackathon stock picks.
+to suit the current hackathon stock picks. Risk parameters are defined
+here — the LLM never touches these numbers.
 """
 
 import os
@@ -12,7 +13,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── Model Settings ─────────────────────────────────────────────────────────────
-GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.0-flash")
+GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
 
 # ── API Keys ───────────────────────────────────────────────────────────────────
 GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
@@ -34,18 +35,25 @@ WATCH_LIST: list[str] = [
 ]
 
 TARGET_EXCHANGE: str = "NSE"   # Options: "NSE", "BSE", "NASDAQ"
-DEFAULT_PERIOD: str  = "6mo"   # yfinance period (1d, 5d, 1mo, 3mo, 6mo, 1y)
+DEFAULT_PERIOD: str  = "1y"    # yfinance period – 1y needed for 200DMA
 DEFAULT_INTERVAL: str = "1d"   # yfinance interval (1m, 5m, 15m, 1h, 1d)
 
-# ── Session State Keys (Shared Whiteboard) ─────────────────────────────────────
-# Using constants avoids typos when agents read/write session.state.
-KEY_RESEARCH_OUTPUT:     str = "research_output"       # Researcher → Analyst
-KEY_TECHNICAL_SIGNALS:   str = "technical_signals"     # Analyst → DecisionMaker
-KEY_TRADE_DECISION:      str = "trade_decision"        # DecisionMaker → UI / main
+# ── Risk Parameters (Deterministic – LLM NEVER touches these) ─────────────────
+MAX_RISK_PCT: float        = 0.01    # 1% of portfolio equity per trade
+ATR_STOP_MULTIPLIER: float = 1.5     # Stop-loss = Entry − (1.5 × ATR)
+MIN_RISK_REWARD: float     = 1.5     # Minimum R:R ratio to allow a trade
+DEFAULT_PORTFOLIO_EQUITY: float = 1_000_000.0  # ₹10L default for sizing
 
-# ── Pipeline Mode ──────────────────────────────────────────────────────────────
-# Toggle between "sequential" and "parallel" from a single flag.
-PIPELINE_MODE: str = "sequential"   # or "parallel"
+# ── Session State Keys (re-exported from pipeline.session_keys) ────────────────
+# Import from pipeline.session_keys for the canonical key constants.
+from pipeline.session_keys import (  # noqa: E402
+    KEY_QUANT_SNAPSHOT,
+    KEY_SENTIMENT,
+    KEY_BULL_THESIS,
+    KEY_BEAR_THESIS,
+    KEY_CIO_PROPOSAL,
+    KEY_FINAL_TRADE,
+)
 
 # ── Agent Generation Settings ──────────────────────────────────────────────────
 AGENT_TEMPERATURE: float = 0.2      # Lower = more deterministic trading logic

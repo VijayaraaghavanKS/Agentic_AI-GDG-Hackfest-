@@ -1,175 +1,105 @@
 """
-main.py – Agentic Pipeline Entry Point
-========================================
-Runs the multi-agent trading pipeline from the command line.
+main.py – Regime-Aware Trading Pipeline (CLI Entry Point)
+===========================================================
+Runs the full 6-step pipeline from the command line for a single ticker.
 
 Usage:
-    python main.py                    # Run with default watch list
-    python main.py --tickers TCS.NS   # Run for a single ticker
+    python main.py                          # Run for first ticker in WATCH_LIST
+    python main.py --ticker RELIANCE.NS     # Run for a specific ticker
+    python main.py --equity 500000          # Custom portfolio equity
 
-Pipeline Modes (set PIPELINE_MODE in config.py):
-    sequential  →  Researcher → Analyst → DecisionMaker (one after another)
-    parallel    →  Researcher + Analyst run in parallel → DecisionMaker
-
-ADK Key Concepts used here:
-    - Runner          : Executes an agent or pipeline given a user message.
-    - InMemorySession : Lightweight session store; swap for DB-backed store in prod.
-    - session.state   : The 'shared whiteboard' – agents read/write here.
+Pipeline Steps:
+    1. Quant Engine (Python Tool)  → Fetch OHLCV, indicators, regime
+    2. Sentiment Agent (ADK)       → Search news/macro
+    3. Bull Agent (ADK)            → Bullish thesis
+    4. Bear Agent (ADK)            → Bearish teardown
+    5. CIO Agent (ADK)             → Synthesise into trade proposal JSON
+    6. Risk Handcuffs (Python Tool)→ Enforce ATR stop-loss & 1% sizing
 """
 
 import asyncio
 import argparse
 
-from google.adk.agents import SequentialAgent, ParallelAgent
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-from google.genai import types as genai_types
-
-from config import (
-    PIPELINE_MODE,
-    WATCH_LIST,
-    KEY_TRADE_DECISION,
-)
-from agents import researcher_agent, analyst_agent, decision_agent
-from utils.helpers import pretty_print_state, extract_decisions_from_state
-
-
-# ── Pipeline Factory ──────────────────────────────────────────────────────────
-
-def build_pipeline(mode: str = PIPELINE_MODE):
-    """
-    Build and return the top-level orchestrator agent.
-
-    Args:
-        mode: 'sequential' or 'parallel'.
-
-    Returns:
-        A SequentialAgent or ParallelAgent wrapping all three sub-agents.
-    """
-    if mode == "parallel":
-        # Researcher and Analyst run simultaneously; DecisionMaker waits.
-        pre_pipeline = ParallelAgent(
-            name="ResearchAndAnalysis",
-            sub_agents=[researcher_agent, analyst_agent],
-        )
-        return SequentialAgent(
-            name="TradingPipeline",
-            sub_agents=[pre_pipeline, decision_agent],
-        )
-
-    # Default: strictly sequential
-    return SequentialAgent(
-        name="TradingPipeline",
-        sub_agents=[researcher_agent, analyst_agent, decision_agent],
-    )
+from config import WATCH_LIST, DEFAULT_PORTFOLIO_EQUITY
+from pipeline import Orchestrator
+from pipeline.session_keys import KEY_FINAL_TRADE, ALL_KEYS
+from utils.helpers import pretty_print_state, format_currency_inr
 
 
 # ── Main Runner ───────────────────────────────────────────────────────────────
 
-async def run_pipeline(tickers: list[str] | None = None) -> dict:
+async def run_pipeline(
+    ticker: str,
+    portfolio_equity: float = DEFAULT_PORTFOLIO_EQUITY,
+) -> dict:
     """
-    Execute the full trading pipeline for the given tickers.
+    Execute the full 6-step Regime-Aware pipeline for one ticker.
 
     Args:
-        tickers: List of ticker symbols. Defaults to WATCH_LIST in config.
+        ticker:           The stock ticker symbol (e.g. 'RELIANCE.NS').
+        portfolio_equity: Total portfolio equity in INR for position sizing.
 
     Returns:
-        The final session.state dict after all agents have run.
+        The final session.state dict containing all intermediate outputs
+        and the risk-validated trade in KEY_FINAL_TRADE.
     """
-    watch_list = tickers or WATCH_LIST
-
-    # Build the orchestrator
-    pipeline = build_pipeline(PIPELINE_MODE)
-
-    # Session service holds state between agents in the same run
-    session_service = InMemorySessionService()
-
-    runner = Runner(
-        agent=pipeline,
-        app_name="stock_trading_agent",
-        session_service=session_service,
-    )
-
-    # The user turn message that kicks off the pipeline
-    user_message = genai_types.Content(
-        role="user",
-        parts=[
-            genai_types.Part(text=(
-                f"Analyse the following stocks and provide trading decisions: "
-                f"{', '.join(watch_list)}"
-            ))
-        ],
-    )
-
-    # Create a new session for this run
-    session = await session_service.create_session(
-        app_name="stock_trading_agent",
-        user_id="hackathon_user",
-    )
-
-    print(f"\n{'='*60}")
-    print(f" PIPELINE MODE : {PIPELINE_MODE.upper()}")
-    print(f" WATCH LIST    : {', '.join(watch_list)}")
-    print(f"{'='*60}\n")
-
-    # Stream events from the pipeline
-    async for event in runner.run_async(
-        user_id="hackathon_user",
-        session_id=session.id,
-        new_message=user_message,
-    ):
-        # Log each agent completing
-        if event.is_final_response() and event.author:
-            print(f"[{event.author}] ✓ Complete")
-
-    # Retrieve the final session state
-    final_session = await session_service.get_session(
-        app_name="stock_trading_agent",
-        user_id="hackathon_user",
-        session_id=session.id,
-    )
-
-    return dict(final_session.state)
+    orchestrator = Orchestrator(ticker=ticker, portfolio_equity=portfolio_equity)
+    return await orchestrator.run()
 
 
 # ── CLI Entry Point ───────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Stock Market AI Trading Agent – GDG Hackfest"
+        description="Regime-Aware Trading Command Center – GDG Hackfest 2026"
     )
     parser.add_argument(
-        "--tickers",
-        nargs="+",
+        "--ticker",
+        type=str,
         default=None,
-        help="Space-separated ticker symbols to analyse (e.g. TCS.NS INFY.NS)",
+        help="Ticker symbol to analyse (e.g. RELIANCE.NS). Defaults to first in WATCH_LIST.",
     )
     parser.add_argument(
-        "--mode",
-        choices=["sequential", "parallel"],
-        default=PIPELINE_MODE,
-        help="Pipeline execution mode (default: from config.py)",
+        "--equity",
+        type=float,
+        default=DEFAULT_PORTFOLIO_EQUITY,
+        help=f"Portfolio equity in INR (default: {DEFAULT_PORTFOLIO_EQUITY:,.0f})",
     )
     args = parser.parse_args()
 
+    ticker = args.ticker or WATCH_LIST[0]
+
+    print(f"\n{'='*60}")
+    print(f"  REGIME-AWARE TRADING COMMAND CENTER")
+    print(f"  Ticker:    {ticker}")
+    print(f"  Equity:    {format_currency_inr(args.equity)}")
+    print(f"{'='*60}\n")
+
     # Run the async pipeline
-    final_state = asyncio.run(run_pipeline(tickers=args.tickers))
+    final_state = asyncio.run(run_pipeline(ticker=ticker, portfolio_equity=args.equity))
 
     # Debug: print entire shared whiteboard
     pretty_print_state(final_state)
 
-    # Parse and display the structured decisions
-    decisions = extract_decisions_from_state(final_state)
-    print("\n FINAL TRADE DECISIONS")
+    # Display final trade result
+    final_trade = final_state.get(KEY_FINAL_TRADE)
+    print("\n FINAL VALIDATED TRADE")
     print("-" * 40)
-    for d in decisions:
-        ticker = d.get("ticker", "N/A")
-        action = d.get("action", "N/A")
-        conf   = d.get("confidence", "N/A")
-        rat    = d.get("rationale", "")
-        print(f"  {ticker:<15} {action:<6} (conf: {conf})")
-        if rat:
-            print(f"    → {rat}")
+    if final_trade and not final_trade.get("killed"):
+        print(f"  Ticker:        {final_trade.get('ticker', 'N/A')}")
+        print(f"  Action:        {final_trade.get('action', 'N/A')}")
+        print(f"  Entry:         {format_currency_inr(final_trade.get('entry_price', 0))}")
+        print(f"  Stop Loss:     {format_currency_inr(final_trade.get('stop_loss', 0))}")
+        print(f"  Target:        {format_currency_inr(final_trade.get('target_price', 0))}")
+        print(f"  Position Size: {final_trade.get('position_size', 0)} shares")
+        print(f"  Total Risk:    {format_currency_inr(final_trade.get('total_risk', 0))}")
+        print(f"  Risk/Reward:   1:{final_trade.get('risk_reward_ratio', 0):.2f}")
+        print(f"  Regime:        {final_trade.get('regime', 'N/A')}")
+    elif final_trade and final_trade.get("killed"):
+        print(f"  ⛔ TRADE KILLED by Risk Engine")
+        print(f"  Reason: {final_trade.get('kill_reason', 'Unknown')}")
+    else:
+        print("  No trade proposal generated.")
     print()
 
 

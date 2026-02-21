@@ -1,12 +1,13 @@
 """
 agents/__init__.py
 
-Exports the three core agents so any file can import them as:
-    from agents import researcher, analyst, decision_maker
+Exports the four Regime-Aware pipeline agents:
+    from agents import sentiment_agent, bull_agent, bear_agent, cio_agent
 """
 
-from .researcher import researcher_agent
-from .analyst import analyst_agent
-from .decision_maker import decision_agent
+from .sentiment_agent import sentiment_agent
+from .bull_agent import bull_agent
+from .bear_agent import bear_agent
+from .cio_agent import cio_agent
 
-__all__ = ["researcher_agent", "analyst_agent", "decision_agent"]
+__all__ = ["sentiment_agent", "bull_agent", "bear_agent", "cio_agent"]

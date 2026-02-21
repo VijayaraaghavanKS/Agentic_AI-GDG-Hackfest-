@@ -2,12 +2,42 @@
 utils/helpers.py – Shared Utility Functions
 =============================================
 Utility functions used across agents, tools, and the UI.
-Add shared logic here to keep agents clean and focused.
+Includes JSON parsing for the CIO output schema, logging helpers,
+and formatting utilities for the Streamlit dashboard.
 """
 
 import json
+import logging
 from typing import Any
 
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+
+def setup_logger(name: str = "regime_trading", level: int = logging.INFO) -> logging.Logger:
+    """
+    Create a standardised logger for pipeline components.
+
+    Args:
+        name:  Logger name.
+        level: Logging level (default INFO).
+
+    Returns:
+        A configured logging.Logger instance.
+    """
+    logger = logging.getLogger(name)
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        fmt = logging.Formatter(
+            "[%(asctime)s] %(name)s | %(levelname)s | %(message)s",
+            datefmt="%H:%M:%S",
+        )
+        handler.setFormatter(fmt)
+        logger.addHandler(handler)
+    logger.setLevel(level)
+    return logger
+
+
+# ── Session State Printing ────────────────────────────────────────────────────
 
 def pretty_print_state(state: dict[str, Any]) -> None:
     """
@@ -26,43 +56,54 @@ def pretty_print_state(state: dict[str, Any]) -> None:
     print("=" * 60 + "\n")
 
 
-def extract_decisions_from_state(state: dict[str, Any]) -> list[dict]:
+# ── CIO JSON Parsing ─────────────────────────────────────────────────────────
+
+def parse_cio_json(raw: str) -> dict | None:
     """
-    Parse the trade_decision text block from session.state into a list
-    of structured decision dicts for the Streamlit UI.
+    Parse the CIO agent's raw text output into a structured dict.
+
+    The CIO is instructed to output pure JSON, but may wrap it in markdown
+    fences or include preamble text. This function extracts and validates
+    the JSON block.
 
     Args:
-        state: The session.state dictionary.
+        raw: The raw string from session.state[KEY_CIO_PROPOSAL].
 
     Returns:
-        A list of dicts, each representing one ticker's trade decision.
-        Falls back to a single dict with raw text if parsing fails.
-
-    TODO: Replace this simple parser with a proper Pydantic output schema
-          once the DecisionMaker prompt is stabilised.
+        A parsed dict with keys: ticker, action, entry, raw_stop_loss,
+        target, conviction_score, rationale.
+        Returns None if parsing fails.
     """
-    raw: str = state.get("trade_decision", "")
     if not raw:
-        return [{"error": "No trade decision found in session state."}]
+        return None
 
-    decisions: list[dict] = []
-    current: dict = {}
+    # Strip markdown code fences if present
+    text = raw.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        # Remove first and last fence lines
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        text = "\n".join(lines)
 
-    for line in raw.splitlines():
-        line = line.strip()
-        if line.startswith("- ticker:"):
-            if current:
-                decisions.append(current)
-            current = {"ticker": line.split(":", 1)[-1].strip()}
-        elif ":" in line and current:
-            k, _, v = line.partition(":")
-            current[k.strip().lstrip("- ")] = v.strip()
+    # Try direct parse
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
 
-    if current:
-        decisions.append(current)
+    # Try to find JSON object in the text
+    start = text.find("{")
+    end = text.rfind("}") + 1
+    if start != -1 and end > start:
+        try:
+            return json.loads(text[start:end])
+        except json.JSONDecodeError:
+            pass
 
-    return decisions if decisions else [{"raw": raw}]
+    return None
 
+
+# ── Formatting ────────────────────────────────────────────────────────────────
 
 def format_currency_inr(value: float) -> str:
     """
@@ -93,3 +134,16 @@ def get_action_colour(action: str) -> str:
         "HOLD": "#FF6D00",  # Amber
     }
     return colours.get(action.upper(), "#FFFFFF")
+
+
+def format_risk_reward(rr_ratio: float) -> str:
+    """
+    Format a risk/reward ratio for display.
+
+    Args:
+        rr_ratio: The risk-to-reward ratio (e.g. 2.5).
+
+    Returns:
+        Formatted string, e.g. '1:2.50'.
+    """
+    return f"1:{rr_ratio:.2f}"
