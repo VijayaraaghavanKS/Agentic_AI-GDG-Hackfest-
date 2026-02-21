@@ -108,6 +108,10 @@ class IndicatorSet:
         )
 
 
+# ── Backward-compatible alias (consumed by regime_classifier.py) ──────────────
+IndicatorResult = IndicatorSet
+
+
 # ── Input validation ──────────────────────────────────────────────────────────
 
 def _validate_input(df: pd.DataFrame, ticker: str) -> None:

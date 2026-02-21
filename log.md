@@ -10,7 +10,9 @@
 
 | Component | Status |
 |---|---|
-| `quant/` (Data Layer) | Scaffolded — stubs with `NotImplementedError` |
+| `quant/data_fetcher.py` | **Complete** — `MarketData` dataclass + `fetch_ohlcv` (11-step pipeline) + `fetch_multiple` + `fetch_nifty` + `fetch_banknifty` |
+| `quant/indicators.py` | Scaffolded — stubs with `NotImplementedError` |
+| `quant/regime_classifier.py` | Scaffolded — stubs with `NotImplementedError` |
 | `risk/` (Risk Layer) | Scaffolded — stubs with `NotImplementedError` |
 | `pipeline/` (Orchestrator) | Scaffolded — stubs with `NotImplementedError` |
 | `agents/` (4 ADK Agents) | Scaffolded — system prompts written, `output_key` wired |
@@ -120,8 +122,57 @@
 
 ---
 
+### [2026-02-21] Session 2 — Implemented `quant/data_fetcher.py` (Layer 1: Deterministic Quant Engine)
+
+#### 1. `MarketData` Dataclass
+- Created `MarketData` frozen dataclass with `slots=True` — immutable container for validated OHLCV data.
+- Fields: `ticker`, `dataframe`, `last_updated` (UTC datetime), `rows`, `period`, `interval`.
+- Custom `__repr__` for readable logging output.
+
+#### 2. `fetch_ohlcv()` — Primary Entry-Point (11-Step Pipeline)
+- **Step 0** — Ticker normalisation via `_normalise_ticker()`: bare `RELIANCE` → `RELIANCE.NS`, index `^NSEI` untouched, already-suffixed tickers pass through.
+- **Step 1** — `yf.download()` wrapped in try/except → raises `RuntimeError` on network/yfinance failure.
+- **Step 2** — Empty DataFrame check → raises `ValueError` with actionable message.
+- **Step 3** — `_standardise_columns()`: flattens MultiIndex columns (yfinance ≥ 0.2.50 quirk), lowercases via `str(c).strip().lower()` to handle non-string labels.
+- **Step 4** — `_validate_columns()`: asserts `[open, high, low, close, volume]` exist.
+- **Step 5** — Retains only OHLCV columns (drops adj_close, dividends, etc.).
+- **Step 6** — `_drop_nans()`: drops NaN rows with division-by-zero guard on percentage logging.
+- **Step 7** — `_validate_row_count()`: enforces minimum 200 rows.
+- **Step 8** — `df.sort_index()`: ensures ascending time order (Yahoo sometimes returns unsorted).
+- **Step 9** — `_validate_freshness()`: last candle must be within 10 days of now; all comparisons in UTC via `_to_utc_timestamp()` helper.
+- **Step 10** — `df.copy()`: defensive copy prevents mutation leaking into frozen dataclass.
+- **Step 11** — Builds and returns immutable `MarketData` instance.
+
+#### 3. `fetch_multiple()` — Batch Fetch
+- Iterates over a sequence of tickers, calls `fetch_ohlcv()` for each.
+- Failed tickers are logged via `logger.warning()` and skipped — returns partial results instead of aborting.
+
+#### 4. `fetch_nifty()` / `fetch_banknifty()` — Convenience Wrappers
+- `fetch_nifty()` → fetches `^NSEI` (NIFTY 50 index).
+- `fetch_banknifty()` → fetches `^NSEBANK` (BANK NIFTY index).
+
+#### 5. Constants
+- `REQUIRED_COLUMNS = ["open", "high", "low", "close", "volume"]`
+- `MIN_ROWS = 200` (needed for 200DMA lookback)
+- `FRESHNESS_DAYS = 10` (max staleness before raising)
+- `_NIFTY_50 = "^NSEI"`, `_BANK_NIFTY = "^NSEBANK"`, `_NSE_SUFFIX = ".NS"`
+
+#### 6. Standalone Test (`__main__` block)
+- Accepts optional ticker from CLI arg (defaults to `RELIANCE.NS`).
+- Prints: ticker, rows, period, interval, last candle date, freshness in days, fetch timestamp, last 5 rows.
+- Exits with code 1 on failure.
+
+#### 7. Updated `quant/__init__.py`
+- Now exports: `fetch_ohlcv`, `fetch_multiple`, `fetch_nifty`, `fetch_banknifty`, `MarketData`, `compute_indicators`, `classify_regime`, `RegimeSnapshot`.
+
+#### 8. Verified
+- `python -m quant.data_fetcher RELIANCE.NS` → 248 rows, last candle 2026-02-20.
+- `python -m quant.data_fetcher RELIANCE` → auto-normalised to `RELIANCE.NS`, same result.
+
+---
+
 ## Next Steps (TODO)
-- [ ] Implement `quant/data_fetcher.py` — yfinance fetch logic
+- [x] Implement `quant/data_fetcher.py` — yfinance fetch logic
 - [ ] Implement `quant/indicators.py` — DMA, ATR, RSI, MACD math
 - [ ] Implement `quant/regime_classifier.py` — BULL/BEAR/NEUTRAL rules
 - [ ] Implement `risk/risk_engine.py` — stop-loss override + 1% sizing
