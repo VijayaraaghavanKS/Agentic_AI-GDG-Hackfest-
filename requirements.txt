@@ -1,43 +1,75 @@
 # =========================================================
 # Regime-Aware Trading Command Center
-# Complete Requirements
-# Gemini 3 + Google ADK + Quant Engine + Streamlit
+# GDG HackFest 2026
+# Gemini 3 + Google ADK + Quant Engine + Dashboard
 # =========================================================
 
 
-# ── Core AI Stack (Gemini + ADK) ──────────────────────────
-google-adk>=1.0.0
+# ===============================
+# Core AI Stack
+# ===============================
+
+google-adk>=1.25.0
 google-genai>=1.0.0
 
 
-# ── Environment Configuration ─────────────────────────────
+# ===============================
+# Environment
+# ===============================
+
 python-dotenv>=1.0.0
 
 
-# ── Quantitative Engine ───────────────────────────────────
+# ===============================
+# Quantitative Engine
+# ===============================
+
 yfinance>=0.2.50
 pandas>=2.2.0
 numpy>=1.26.0
-ta>=0.11.0                   # Technical Analysis (replaces pandas-ta, works on 3.11)
+ta>=0.11.0
 
 
-# ── Visualization & UI ────────────────────────────────────
+# ===============================
+# Visualization
+# ===============================
+
 streamlit>=1.40.0
 plotly>=5.24.0
 
 
-# ── HTTP & APIs ───────────────────────────────────────────
+# ===============================
+# Web Backend (Dashboard API)
+# ===============================
+
+fastapi>=0.110.0
+uvicorn>=0.29.0
+
+
+# ===============================
+# HTTP Requests
+# ===============================
+
 requests>=2.32.0
 
 
-# ── Structured Data Models (IMPORTANT) ────────────────────
+# ===============================
+# Data Models
+# ===============================
+
 pydantic>=2.7.0
 typing-extensions>=4.10.0
 
 
-# ── JSON Performance (Optional but Recommended) ───────────
+# ===============================
+# Performance (Optional but Recommended)
+# ===============================
+
 orjson>=3.10.0
 
 
-# ── Better Logging (Optional but Helpful) ─────────────────
+# ===============================
+# Logging (Optional but Recommended)
+# ===============================
+
 rich>=13.7.0

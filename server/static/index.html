@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Assistant</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="app-header">
+    <h1>Agentic Trading Assistant</h1>
+    <span class="tag">PAPER TRADING</span>
+</header>
+
+<div class="main-grid">
+    <!-- Chat Panel -->
+    <div class="chat-panel">
+        <div class="chat-messages" id="chatMessages">
+            <div class="msg agent">
+                Welcome! I'm your AI trading assistant for the Indian stock market (NSE).
+
+Ask me things like:
+- "What is the current market regime?"
+- "Scan for breakout stocks"
+- "Analyze RELIANCE"
+- "Show my portfolio"
+- "Execute a full scan-to-trade flow"
+
+All trades are paper trades. No real money involved.
+            </div>
+        </div>
+        <div class="chat-input-area">
+            <input type="text" id="chatInput" placeholder="Ask about the market, scan stocks, or trade..." autocomplete="off">
+            <button id="sendBtn">Send</button>
+        </div>
+    </div>
+
+    <!-- Dashboard Panel -->
+    <div class="dashboard-panel">
+        <div class="card">
+            <h3>Market Regime</h3>
+            <button class="btn-refresh" onclick="loadRegime()">Refresh</button>
+            <div id="regimeContent"><span class="loading">Loading...</span></div>
+        </div>
+
+        <div class="card">
+            <h3>Portfolio</h3>
+            <button class="btn-refresh" onclick="loadPortfolio()">Refresh</button>
+            <div id="portfolioContent"><span class="loading">Loading...</span></div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
