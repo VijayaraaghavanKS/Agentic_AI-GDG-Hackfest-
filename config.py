@@ -15,13 +15,18 @@ load_dotenv()
 # ── Model Settings ─────────────────────────────────────────────────────────────
 GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
-# ── API Keys ───────────────────────────────────────────────────────────────────
-GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
+# ── Vertex AI Authentication (ADC) ───────────────────────────────────────────
+# Routed through Vertex AI using Application Default Credentials.
+# No API key required. Run once:  gcloud auth application-default login
+os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "true")
 
-if not GOOGLE_API_KEY:
+GOOGLE_CLOUD_PROJECT: str  = os.getenv("GOOGLE_CLOUD_PROJECT", "")
+GOOGLE_CLOUD_LOCATION: str = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+
+if not GOOGLE_CLOUD_PROJECT:
     raise EnvironmentError(
-        "GOOGLE_API_KEY is not set. "
-        "Copy .env.example → .env and add your key."
+        "GOOGLE_CLOUD_PROJECT is not set. "
+        "Add it to your .env file (see .env.example)."
     )
 
 # ── Market Configuration ───────────────────────────────────────────────────────
