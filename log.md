@@ -18,6 +18,7 @@
 | `pipeline/` (Orchestrator) | Scaffolded — stubs with `NotImplementedError` |
 | `agents/` (4 ADK Agents) | Scaffolded — system prompts written, `output_key` wired |
 | `agents/quant_agent.py` | **Complete** — QuantAgent LlmAgent, interprets quant snapshot, `output_key=KEY_QUANT_ANALYSIS`, temp=0.2, no tools |
+| `agents/sentiment_agent.py` | **Complete** — SentimentAgent LlmAgent, regime-aware news + macro sentiment via Google Search grounding, `output_key=KEY_SENTIMENT`, temp=0.2, tools=[google_search] |
 | `test_quant_agent.py` | **Complete** — E2E integration test: `quant_engine_tool` → session state → QuantAgent → validate output. Requires ADC credentials for Vertex AI. |
 | `risk/` (Risk Layer) | **Deleted** — duplicate removed, all imports point to `quant.risk_engine` |
 | `test_risk_engine.py` | **Complete** — 5 E2E tests (normal BUY, bad RR, huge ATR, SELL, missing field) — ALL PASSED |
@@ -708,6 +709,86 @@ CIO Agent → KEY_CIO_PROPOSAL → risk_tool.py → risk_engine.apply_risk_limit
 
 ---
 
+### [2026-02-21] Session 9 — Implemented `agents/sentiment_agent.py` (SentimentAgent – Step 3)
+
+#### 1. `sentiment_agent` — LlmAgent Definition (Full Rewrite)
+- Rewrote `agents/sentiment_agent.py` from stub to production-grade ADK `LlmAgent`.
+- Agent name: `SentimentAgent`.
+- Model: `config.GEMINI_MODEL` (`gemini-2.5-flash`).
+- Temperature: `AGENT_TEMPERATURE` (0.2) via `GenerateContentConfig`.
+- `max_output_tokens`: `MAX_OUTPUT_TOKENS` via `GenerateContentConfig`.
+- Tools: `[google_search]` — uses Google Search grounding for real-time news.
+- `output_key`: `KEY_SENTIMENT` (`"sentiment_summary"`).
+
+#### 2. System Prompt — Regime-Aware Sentiment Analysis
+- Professional macro and company sentiment analyst persona.
+- Strict constraints: NEVER calculates indicators, NEVER modifies quant results, NEVER generates trade recommendations, price targets, or stop losses.
+- Reads `{quant_snapshot}` from session state as context only.
+- Regime-aware rules: highlights risks in BEAR, growth catalysts in BULL, balanced in NEUTRAL.
+- Focus areas: Earnings, Guidance, Regulatory changes, Sector trends, Commodity prices, Interest rates, RBI/Fed policy, Corporate developments, Analyst upgrades/downgrades, Institutional flows.
+- Prioritizes last 24–72 hours; falls back to 1–2 weeks.
+- Avoids: long history, generic descriptions, Wikipedia summaries, financial ratios, technical indicators.
+
+#### 3. Structured Output Format (STRICT)
+```
+SENTIMENT_SUMMARY:
+  Company Sentiment: <bullish/bearish/neutral explanation>
+  Macro Environment: <macro conditions affecting the stock>
+  Sector Conditions: <sector-level sentiment>
+  Key Catalysts: <most important recent developments>
+  Market Narrative: <how traders currently view this stock>
+  Confidence: <0.0 - 1.0>
+```
+
+#### 4. Confidence Scoring Guide
+- `0.8 – 1.0` = Clear strong sentiment and major catalysts.
+- `0.5 – 0.7` = Mixed signals or moderate news flow.
+- `0.2 – 0.4` = Weak or unclear sentiment.
+- `0.0 – 0.2` = Little or no recent information.
+
+#### 5. Session State Contract
+- **Reads**: `KEY_QUANT_SNAPSHOT` (from `quant_tool`, Step 1).
+- **Writes**: `KEY_SENTIMENT` (consumed by BullAgent Step 4, BearAgent Step 5, CIO Agent Step 6).
+
+#### 6. Style Consistency
+- Matches `quant_agent.py` pattern: `__future__` annotations, module-level logger, type-hinted `_INSTRUCTION`, `GenerateContentConfig`, `logger.info()` on init, standalone `__main__` block.
+- Updated pipeline step number: Step 2 → Step 3 (reflecting updated pipeline ordering after QuantAgent insertion).
+
+#### 7. Standalone Test (`__main__` block)
+- Prints: agent name, model, input key, output key, tools.
+
+---
+
+### [2026-02-21] Session 9b — Refined SentimentAgent System Prompt
+
+#### Changes
+- **Mandatory search**: Added `"You must use google_search before producing the final answer."` — agent must call google_search tool before generating output.
+- **Removed "when available"**: Changed `"You must use grounded web search results when available"` → `"You must use grounded web search results"` — search is now mandatory, not optional.
+- **Quant snapshot structure**: Added explicit field list (ticker, price, regime, rsi, atr, moving averages, volatility, timestamp) so agent knows what context is available.
+- **Ticker anchoring**: Added `"The ticker symbol is available in KEY_QUANT_SNAPSHOT"` and `"Always base your analysis on that ticker"`.
+- **Explicit quant guards**: Added `"Do not modify quant values"` and `"Do not recompute indicators"`.
+- **Focus items**: One per line instead of comma-separated (clearer for LLM parsing).
+- **Confidence guide formatting**: Switched from `=` separators to line-break format (cleaner).
+- **Output word limit**: Added `"Keep output under 1000 words"`.
+- **Removed example searches**: Removed hardcoded search examples — agent infers from ticker.
+- **Removed "Rules:" prefix**: Output rules listed directly without section header.
+
+---
+
+### [2026-02-21] Session 9c — Critical Bug Fix in SentimentAgent
+
+#### 1. Bug Fix: Removed `{quant_snapshot}` Placeholder
+- **Problem**: `_INSTRUCTION` contained `{quant_snapshot}` — ADK does not perform variable substitution in instruction strings. Gemini would literally see the placeholder text, causing confusion.
+- **Fix**: Deleted the entire `"The quant snapshot for context:\n{quant_snapshot}\n\n"` block. ADK automatically provides session state to the agent — no manual injection needed.
+
+#### 2. Improved Agent Description
+- Changed description to explicitly reference session keys: `"Reads KEY_QUANT_SNAPSHOT and writes KEY_SENTIMENT"` — aids debugging in ADK trace logs.
+
+#### 3. Added Instruction Debug Log
+- Added `logger.debug("SentimentAgent instruction loaded (%d chars)", len(_INSTRUCTION))` after `_INSTRUCTION` definition — standard practice in production ADK systems for verifying prompt loading.
+
+---
+
 ## Next Steps (TODO)
 - [x] Implement `quant/data_fetcher.py` — yfinance fetch logic
 - [x] Implement `quant/indicators.py` — RSI, ATR, SMA, EMA, Volatility, Momentum, Trend Strength
@@ -721,6 +802,7 @@ CIO Agent → KEY_CIO_PROPOSAL → risk_tool.py → risk_engine.apply_risk_limit
 - [x] Update `tools/risk_tool.py` — import from `quant.risk_engine` instead of `risk`
 - [x] End-to-end integration test `test_risk_engine.py` — 5 tests, ALL PASSED
 - [x] Implement `tools/risk_tool.py` — wire risk engine as ADK tool (adapter + validation + logging)
+- [x] Implement `agents/sentiment_agent.py` — SentimentAgent (regime-aware news + macro sentiment via Google Search)
 - [ ] Implement `pipeline/orchestrator.py` — ADK InMemorySessionService + 6-step sequencing
 - [ ] Add Plotly chart to `app.py` — OHLCV candles + DMA lines + regime colour bands
 - [ ] Delete obsolete files (`researcher.py`, `analyst.py`, `decision_maker.py`, `market_tools.py`)
