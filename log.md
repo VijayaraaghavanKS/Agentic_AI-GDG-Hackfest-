@@ -15,7 +15,7 @@
 | `test_indicators.py` | **Complete** — 4 integration tests (single, multiple, index, failure) — ALL PASSED |
 | `quant/regime_classifier.py` | **Complete** — `RegimeSnapshot` frozen dataclass + `classify_regime` (4-step pipeline) + BULL/BEAR/NEUTRAL deterministic rules |
 | `quant/risk_engine.py` | **Complete** — `ValidatedTrade` frozen dataclass + `apply_risk_limits` (10-step pipeline) + ATR stop override + 1% sizing + regime guard + conviction validation + NaN/Inf safety + negative-reward clamp |
-| `pipeline/` (Orchestrator) | Scaffolded — stubs with `NotImplementedError` |
+| `pipeline/` (Orchestrator) | **Complete** — `orchestrator/pipeline_runner.py`: 7-step async pipeline (QuantTool → QuantAgent → SentimentAgent → BullAgent → BearAgent → CIOAgent → RiskTool), CIO text parser, state validation, ticker normalisation, full E2E verified |
 | `agents/cio_agent.py` | **Complete** — CIOAgent LlmAgent, final decision-maker, regime-driven trade proposal (BUY/SELL/HOLD), reads 5 session keys, writes KEY_CIO_PROPOSAL, structured plain-text output, ticker format guard, numeric stability guard, temp=0.2, no tools |
 | `agents/quant_agent.py` | **Complete** — QuantAgent LlmAgent, interprets quant snapshot, `output_key=KEY_QUANT_ANALYSIS`, temp=0.2, no tools |
 | `agents/sentiment_agent.py` | **Complete** — SentimentAgent LlmAgent, regime-aware news + macro sentiment via Google Search grounding, `output_key=KEY_SENTIMENT`, temp=0.2, tools=[google_search] |
@@ -952,6 +952,71 @@ SENTIMENT_SUMMARY:
 
 ---
 
+### [2026-02-22] Session 15 — Production Pipeline Orchestrator (`orchestrator/pipeline_runner.py`)
+
+#### 1. Created `orchestrator/` Package
+- **`orchestrator/__init__.py`** — Package init.
+- **`orchestrator/pipeline_runner.py`** — Main execution entrypoint for the full 7-step regime-aware trading pipeline.
+
+#### 2. Pipeline Steps Implemented
+- **Step 1 — QuantTool**: Calls `quant_engine_tool(ticker)` → writes `KEY_QUANT_SNAPSHOT` to session state.
+- **Step 2 — QuantAgent**: Runs `quant_agent` via ADK Runner → writes `KEY_QUANT_ANALYSIS`.
+- **Step 3 — SentimentAgent**: Runs `sentiment_agent` via ADK Runner → writes `KEY_SENTIMENT`.
+- **Step 4 — BullAgent**: Runs `bull_agent` via ADK Runner → writes `KEY_BULL_THESIS`.
+- **Step 5 — BearAgent**: Runs `bear_agent` via ADK Runner → writes `KEY_BEAR_THESIS`.
+- **Step 6 — CIOAgent**: Runs `cio_agent` via ADK Runner → writes `KEY_CIO_PROPOSAL`.
+- **Step 7 — RiskTool**: Parses CIO text proposal → calls `risk_enforcement_tool()` → writes `KEY_FINAL_TRADE`.
+
+#### 3. Core Function: `async def run_pipeline(ticker: str) -> Dict`
+- Normalises ticker to uppercase + `.NS` suffix before Step 1.
+- Creates `InMemorySessionService` with quant snapshot pre-populated in initial state (required for ADK `{quant_snapshot}` instruction templating).
+- Creates one `Runner` per agent (`quant_runner`, `sentiment_runner`, `bull_runner`, `bear_runner`, `cio_runner`).
+- Re-fetches session via `await session_service.get_session()` after each agent step to pick up state mutations.
+- Validates state key existence after every step via `_validate_state()` — raises `RuntimeError` on missing keys.
+- Returns dict with all 7 pipeline outputs: `quant_snapshot`, `quant_analysis`, `sentiment`, `bull_thesis`, `bear_thesis`, `cio_proposal`, `final_trade`.
+
+#### 4. Helper: `_run_agent()`
+- DRY wrapper around ADK Runner async loop.
+- Constructs `types.Content` user message, iterates `runner.run_async()`, logs agent responses at DEBUG level.
+
+#### 5. Helper: `_parse_cio_proposal()`
+- **Problem**: CIO agent writes structured plain text (not JSON) to session state. `risk_enforcement_tool()` expects a dict.
+- **Solution**: Regex parser extracts `Action`, `Ticker`, `Entry`, `Raw Stop Loss`, `Target`, `Conviction` from CIO text output.
+- Merges `regime` from `quant_snapshot` (CIO does not emit regime as a separate parseable field).
+- Returns dict with keys: `ticker`, `action`, `entry`, `raw_stop_loss`, `target`, `conviction_score`, `regime`.
+- Raises `RuntimeError` with raw output excerpt if any required field cannot be parsed.
+
+#### 6. Helper: `_validate_state()`
+- Checks that a given key exists and is non-empty in session state.
+- Raises `RuntimeError` with human-readable step label on failure.
+
+#### 7. Error Handling
+- Full pipeline wrapped in `try/except` with `logger.exception("Pipeline failed")` + re-raise.
+
+#### 8. `sys.path` Fix for Script Execution
+- Added `sys.path.insert(0, ...)` pointing to project root so `config`, `tools`, `agents`, `pipeline` resolve when running `python orchestrator/pipeline_runner.py` directly.
+
+#### 9. Session API Fix
+- `create_session()` and `get_session()` are async coroutines in this ADK version — all calls use `await`.
+- Quant snapshot generated **before** `create_session()` and passed via `state={KEY_QUANT_SNAPSHOT: snapshot}` so ADK instruction templating (`{quant_snapshot}`) resolves correctly.
+
+#### 10. Standalone Test Block
+- `if __name__ == "__main__"`: runs `asyncio.run(run_pipeline("RELIANCE"))`, prints final trade dict.
+
+#### 11. Verified — Full End-to-End Run
+```
+STEP 1 — Quant Snapshot Generated | regime=NEUTRAL | price=1419.4
+STEP 2 — Quant Analysis Complete
+STEP 3 — Sentiment Analysis Complete
+STEP 4 — Bull Thesis Generated
+STEP 5 — Bear Thesis Generated
+STEP 6 — CIO Decision Complete
+STEP 7 — Risk Enforcement Complete
+Pipeline complete | ticker=RELIANCE.NS
+```
+
+---
+
 ## Next Steps (TODO)
 - [x] Implement `quant/data_fetcher.py` — yfinance fetch logic
 - [x] Implement `quant/indicators.py` — RSI, ATR, SMA, EMA, Volatility, Momentum, Trend Strength
@@ -966,7 +1031,7 @@ SENTIMENT_SUMMARY:
 - [x] End-to-end integration test `test_risk_engine.py` — 5 tests, ALL PASSED
 - [x] Implement `tools/risk_tool.py` — wire risk engine as ADK tool (adapter + validation + logging)
 - [x] Implement `agents/sentiment_agent.py` — SentimentAgent (regime-aware news + macro sentiment via Google Search)
-- [ ] Implement `pipeline/orchestrator.py` — ADK InMemorySessionService + 6-step sequencing
+- [x] Implement `pipeline/orchestrator.py` — ADK InMemorySessionService + 7-step sequencing (`orchestrator/pipeline_runner.py`)
 - [ ] Add Plotly chart to `app.py` — OHLCV candles + DMA lines + regime colour bands
 - [ ] Delete obsolete files (`researcher.py`, `analyst.py`, `decision_maker.py`, `market_tools.py`)
 - [ ] Create `.env.example` template
