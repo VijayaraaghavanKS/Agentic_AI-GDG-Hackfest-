@@ -48,6 +48,14 @@ chatInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
 
+document.getElementById("quickPrompts").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (chip && chip.dataset.prompt) {
+        chatInput.value = chip.dataset.prompt;
+        sendMessage();
+    }
+});
+
 // ---- Regime Card ----
 async function loadRegime() {
     const el = document.getElementById("regimeContent");
@@ -298,6 +306,68 @@ async function loadPortfolio() {
     } catch (err) {
         el.innerHTML = `<span class="empty-msg">Error: ${err.message}</span>`;
         if (chartEl) chartEl.innerHTML = "";
+    }
+}
+
+// ---- Backtest summary card ----
+async function loadBacktestSummary() {
+    const el = document.getElementById("backtestContent");
+    el.innerHTML = '<span class="loading">Running oversold backtest (2Y, 10 stocks)...</span>';
+    try {
+        const res = await fetch(`${API}/api/backtest/oversold-summary?max_stocks=10`);
+        const d = await res.json();
+        if (d.status !== "success") {
+            el.innerHTML = `<span class="empty-msg">${d.error_message || "Backtest failed."}</span>`;
+            return;
+        }
+        const pnl = d.total_pnl_inr != null ? d.total_pnl_inr : "-";
+        const pnlPct = d.total_pnl_pct != null ? d.total_pnl_pct + "%" : "-";
+        const color = (d.total_pnl_inr || 0) >= 0 ? "var(--accent-green)" : "var(--accent-red)";
+        let html = `
+            <div class="metric-row"><span class="label">Starting capital</span><span class="value">INR ${Number(d.starting_capital_inr || 0).toLocaleString("en-IN")}</span></div>
+            <div class="metric-row"><span class="label">Ending capital</span><span class="value">INR ${Number(d.ending_capital_inr || 0).toLocaleString("en-IN")}</span></div>
+            <div class="metric-row"><span class="label">Total P&L</span><span class="value" style="color:${color}">INR ${typeof pnl === "number" ? pnl.toLocaleString("en-IN") : pnl} (${pnlPct})</span></div>
+            <div class="metric-row"><span class="label">Stocks with trades</span><span class="value">${d.stocks_with_trades || 0}</span></div>
+        `;
+        const top = (d.top_by_win_rate || []).slice(0, 5);
+        if (top.length) {
+            html += "<div style='margin-top:10px;font-size:0.85rem;'><strong>Top by win rate</strong></div>";
+            for (const s of top) {
+                html += `<div class="metric-row" style="font-size:0.8rem;"><span class="label">${s.symbol}</span><span class="value">${s.win_rate_pct}% win, ${s.avg_return_pct}% avg</span></div>`;
+            }
+        }
+        el.innerHTML = html;
+    } catch (err) {
+        el.innerHTML = `<span class="empty-msg">Error: ${err.message}</span>`;
+    }
+}
+
+// ---- Dividend top card ----
+async function loadDividendTop() {
+    const el = document.getElementById("dividendContent");
+    el.innerHTML = '<span class="loading">Fetching dividend opportunities...</span>';
+    try {
+        const res = await fetch(`${API}/api/dividend/top`);
+        const d = await res.json();
+        if (d.status !== "success") {
+            el.innerHTML = `<span class="empty-msg">${d.error_message || "No dividend data."}</span>`;
+            return;
+        }
+        const opportunities = d.top_opportunities || [];
+        if (opportunities.length === 0) {
+            el.innerHTML = `<span class="empty-msg">${d.message || "No upcoming dividend opportunities."}</span>`;
+            return;
+        }
+        let html = `<div class="metric-row"><span class="label">Found</span><span class="value">${d.opportunities_count || 0} opportunities</span></div>`;
+        html += "<div class=\"signal-table-wrap\" style=\"max-height:220px;overflow:auto;\"><table class=\"signal-table\"><thead><tr><th>Symbol</th><th>Health</th><th>Ex-Date</th><th>Entry</th><th>Stop</th></tr></thead><tbody>";
+        for (const o of opportunities.slice(0, 8)) {
+            html += `<tr><td>${o.symbol || "-"}</td><td>${o.dividend_health || "-"}</td><td>${o.ex_date || "-"}</td><td>${formatInr(o.suggested_entry)}</td><td>${formatInr(o.suggested_stop)}</td></tr>`;
+        }
+        html += "</tbody></table></div>";
+        html += `<div style="margin-top:6px;font-size:0.76rem;color:var(--text-secondary);">Ask in chat to backtest or paper trade.</div>`;
+        el.innerHTML = html;
+    } catch (err) {
+        el.innerHTML = `<span class="empty-msg">Error: ${err.message}</span>`;
     }
 }
 

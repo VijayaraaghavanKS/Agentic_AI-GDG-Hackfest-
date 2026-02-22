@@ -228,7 +228,7 @@ def scan_oversold_bounce(
 
         atr = compute_atr(highs, lows, closes)
         # Tighter stop for mean reversion
-        stop = round(max(0.01, close - 0.8 * atr), 2)
+        stop = round(max(0.01, close - 0.6 * atr), 2)
 
         pct_below_50dma = round((1 - close / dma_50) * 100, 2) if dma_50 else 0
 
@@ -328,7 +328,7 @@ def _signal_row_for_symbol(symbol: str, regime: str) -> Dict:
         if oversold_buy:
             signal = "BUY"
             entry = close
-            stop = close - 0.8 * atr
+            stop = close - 0.6 * atr
             risk = entry - stop
             target = entry + 2.0 * risk
             rationale = "Oversold bounce setup (RSI <= 35) below 50-DMA with tight stop."

@@ -270,8 +270,8 @@ def prepare_trade_for_execution(symbol: str) -> Dict:
     metrics = compute_stock_metrics(closes, highs, lows)
     atr = metrics.get("atr", close * 0.02)  # Default 2% if no ATR
     
-    # Calculate stop (0.8 * ATR for RSI strategy)
-    stop = round(close - 0.8 * atr, 2)
+    # Calculate stop (0.6 * ATR for RSI strategy)
+    stop = round(close - 0.6 * atr, 2)
     
     # Get trade plan
     plan = calculate_trade_plan_from_entry_stop(symbol=symbol, entry=close, stop=stop)

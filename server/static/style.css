@@ -133,6 +133,37 @@ body {
 .chat-input-area button:hover { opacity: 0.85; }
 .chat-input-area button:disabled { opacity: 0.4; cursor: not-allowed; }
 
+.quick-prompts {
+    padding: 10px 24px 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+.quick-prompts .prompt-label {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+.quick-prompts .chip {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+.quick-prompts .chip:hover {
+    background: var(--bg-secondary);
+    border-color: var(--accent-blue);
+}
+
+.muted {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
 /* ---- Right panel: Dashboard cards ---- */
 .dashboard-panel {
     overflow-y: auto;

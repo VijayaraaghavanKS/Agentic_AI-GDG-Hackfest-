@@ -19,9 +19,9 @@ interface Signal {
   display_symbol?: string;
   signal: "BUY" | "SELL" | "HOLD";
   current_price: number;
-  entry: number;
-  stop: number;
-  target: number;
+  entry?: number | null;
+  stop?: number | null;
+  target?: number | null;
   rationale: string;
   metrics?: {
     rsi?: number;
@@ -53,6 +53,16 @@ interface SignalBoardData {
 function formatINR(value: number | null | undefined) {
   if (value === null || value === undefined || isNaN(value)) return "-";
   return value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function strategyShortLabel(strategy: string | undefined): string {
+  if (!strategy) return "-";
+  const map: Record<string, string> = {
+    MEAN_REVERSION_OR_OVERSOLD_BOUNCE: "Oversold bounce",
+    TREND_BREAKOUT: "Breakout",
+    OVERSOLD_BOUNCE_OR_DEFENSIVE: "Oversold / defensive",
+  };
+  return map[strategy] ?? strategy;
 }
 
 export function SignalBoard() {
@@ -113,19 +123,21 @@ export function SignalBoard() {
           <p className="text-sm text-destructive">{error}</p>
         ) : data ? (
           <div className="space-y-4">
-            {/* Summary */}
-            <div className="grid grid-cols-4 gap-3 text-sm">
-              <div className="flex flex-col">
+            {/* Summary - separate rows so Strategy doesn't overlap */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-3 text-sm">
+              <div className="flex flex-col min-w-0">
                 <span className="text-muted-foreground">Regime</span>
-                <span className="font-medium">{data.regime || "-"}</span>
+                <span className="font-medium truncate">{data.regime || "-"}</span>
               </div>
-              <div className="flex flex-col">
+              <div className="flex flex-col min-w-0 col-span-2 sm:col-span-1">
                 <span className="text-muted-foreground">Strategy</span>
-                <span className="font-medium">{data.strategy || "-"}</span>
+                <span className="font-medium break-words" title={data.strategy || ""}>
+                  {strategyShortLabel(data.strategy)}
+                </span>
               </div>
-              <div className="flex flex-col">
+              <div className="flex flex-col min-w-0">
                 <span className="text-muted-foreground">Signals</span>
-                <div className="flex gap-1 text-xs">
+                <div className="flex gap-1 text-xs flex-wrap">
                   <span className="text-green-600 font-medium">{data.signal_counts?.BUY || 0} BUY</span>
                   <span>|</span>
                   <span className="text-muted-foreground">{data.signal_counts?.HOLD || 0} HOLD</span>
@@ -133,25 +145,25 @@ export function SignalBoard() {
                   <span className="text-red-600 font-medium">{data.signal_counts?.SELL || 0} SELL</span>
                 </div>
               </div>
-              <div className="flex flex-col">
+              <div className="flex flex-col min-w-0">
                 <span className="text-muted-foreground">Scanned</span>
                 <span className="font-medium">{data.stocks_scanned}/{data.stocks_requested}</span>
               </div>
             </div>
 
-            {/* Table */}
-            <ScrollArea className="h-[400px]">
-              <Table>
+            {/* Table - fixed layout so columns don't overlap */}
+            <ScrollArea className="h-[400px] w-full">
+              <Table className="table-fixed w-full">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[100px]">Symbol</TableHead>
-                    <TableHead>Signal</TableHead>
-                    <TableHead className="text-right">Price</TableHead>
-                    <TableHead className="text-right">Entry</TableHead>
-                    <TableHead className="text-right">Stop</TableHead>
-                    <TableHead className="text-right">Target</TableHead>
-                    <TableHead className="text-right">RSI</TableHead>
-                    <TableHead className="w-[200px]">Rationale</TableHead>
+                    <TableHead className="w-[90px] shrink-0">Symbol</TableHead>
+                    <TableHead className="w-[70px] shrink-0">Signal</TableHead>
+                    <TableHead className="w-[85px] shrink-0 text-right">Price</TableHead>
+                    <TableHead className="w-[85px] shrink-0 text-right">Entry</TableHead>
+                    <TableHead className="w-[85px] shrink-0 text-right">Stop</TableHead>
+                    <TableHead className="w-[90px] shrink-0 text-right">Target</TableHead>
+                    <TableHead className="w-[55px] shrink-0 text-right">RSI</TableHead>
+                    <TableHead className="min-w-[180px]">Rationale</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -175,7 +187,7 @@ export function SignalBoard() {
                         <TableCell className="text-right">
                           {signal.metrics?.rsi != null ? signal.metrics.rsi.toFixed(1) : "-"}
                         </TableCell>
-                        <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
+                        <TableCell className="text-xs text-muted-foreground break-words align-top">
                           {signal.rationale || "-"}
                         </TableCell>
                       </TableRow>

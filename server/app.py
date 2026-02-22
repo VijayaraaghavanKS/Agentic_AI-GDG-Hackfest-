@@ -39,7 +39,7 @@ from trading_agents.tools.portfolio import (
 )
 from trading_agents.regime_agent import analyze_regime
 
-app = FastAPI(title="Agentic Trading Assistant", version="1.0.0")
+app = FastAPI(title="Trade Copilot", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -126,6 +126,127 @@ async def portfolio_refresh():
 @app.post("/api/portfolio/reset")
 async def portfolio_reset():
     return reset_portfolio()
+
+
+@app.get("/api/backtest/oversold-summary")
+async def backtest_oversold_summary(max_stocks: int = 10):
+    """Run oversold bounce backtest on first Nifty 50 stocks; return summary with P&L for dashboard."""
+    from trading_agents.tools.backtest_oversold import backtest_oversold_nifty50
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None,
+        lambda: backtest_oversold_nifty50(years=2, max_stocks=max_stocks, use_portfolio_sizing=True),
+    )
+
+
+@app.get("/api/backtest/oversold-best")
+async def backtest_oversold_best(top_n: int | None = None):
+    """Run oversold backtest on full Nifty 50, return only stocks that pass (win>=50%, >=3 trades). top_n: limit to top N (e.g. 5)."""
+    from trading_agents.tools.backtest_oversold import get_best_oversold_nifty50
+    loop = asyncio.get_event_loop()
+    def _run():
+        out = get_best_oversold_nifty50(years=2, min_win_rate_pct=50, min_trades=3)
+        if out.get("status") != "success":
+            return out
+        best = out.get("best_stocks", [])
+        if top_n is not None and top_n > 0:
+            best = best[:top_n]
+            out["best_stocks"] = best
+        out["total_best_pnl_inr"] = round(sum(s.get("pnl_inr", 0) or 0 for s in best), 2)
+        return out
+    return await loop.run_in_executor(None, _run)
+
+
+@app.get("/api/dividend/top")
+async def dividend_top():
+    """Fetch top dividend opportunities (Moneycontrol + scan) for dashboard."""
+    from trading_agents.dividend_agent import scan_dividend_opportunities
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, lambda: scan_dividend_opportunities(min_days_to_ex=1))
+
+
+@app.get("/api/market")
+async def market(
+    ticker: str = "^NSEI",
+    period: str = "6mo",
+    interval: str = "1d",
+    limit: int = 500,
+):
+    """OHLCV + indicators for market chart. Ticker: symbol (e.g. RELIANCE, ^NSEI). Period: 1d,5d,1mo,3mo,6mo,1y,2y. Interval: 1d,1wk."""
+    import yfinance as yf
+    loop = asyncio.get_event_loop()
+
+    def _run():
+        sym = ticker.strip().upper()
+        if not sym.startswith("^") and not sym.endswith(".NS"):
+            sym = sym + ".NS"
+        t = yf.Ticker(sym)
+        hist = t.history(period=period, interval=interval)
+        if hist is None or len(hist) == 0:
+            return {"status": "error", "error_message": f"No data for {ticker}"}
+        hist = hist.tail(limit)
+        if len(hist) < 2:
+            return {"status": "error", "error_message": "Insufficient bars"}
+        closes = hist["Close"].ffill().tolist()
+        highs = hist["High"].fillna(hist["Close"]).tolist()
+        lows = hist["Low"].fillna(hist["Close"]).tolist()
+        opens = hist["Open"].fillna(hist["Close"]).tolist()
+        volumes = hist["Volume"].fillna(0).astype(int).tolist()
+        dates = [d.isoformat()[:10] for d in hist.index]
+
+        def sma(series, n):
+            out = [None] * len(series)
+            for i in range(n - 1, len(series)):
+                out[i] = round(sum(series[i - n + 1 : i + 1]) / n, 2)
+            return out
+
+        def rsi_series(series, period=14):
+            out = [None] * len(series)
+            for i in range(period, len(series)):
+                gains, losses = 0.0, 0.0
+                for j in range(i - period + 1, i + 1):
+                    ch = series[j] - series[j - 1]
+                    if ch > 0:
+                        gains += ch
+                    else:
+                        losses -= ch
+                avg_gain = gains / period
+                avg_loss = losses / period
+                if avg_loss == 0:
+                    out[i] = 100.0
+                else:
+                    rs = avg_gain / avg_loss
+                    out[i] = round(100 - (100 / (1 + rs)), 2)
+            return out
+
+        sma20 = sma(closes, 20)
+        sma50 = sma(closes, 50)
+        sma200 = sma(closes, 200) if len(closes) >= 200 else [None] * len(closes)
+        rsi = rsi_series(closes, 14)
+
+        candles = []
+        for i in range(len(dates)):
+            candles.append({
+                "date": dates[i],
+                "open": round(float(opens[i]), 2),
+                "high": round(float(highs[i]), 2),
+                "low": round(float(lows[i]), 2),
+                "close": round(float(closes[i]), 2),
+                "volume": int(volumes[i]) if volumes[i] == volumes[i] else 0,
+                "sma20": sma20[i],
+                "sma50": sma50[i],
+                "sma200": sma200[i],
+                "rsi": rsi[i],
+            })
+        return {
+            "status": "success",
+            "ticker": sym,
+            "candles": candles,
+            "period": period,
+            "interval": interval,
+        }
+
+    return await loop.run_in_executor(None, _run)
 
 
 @app.get("/api/signals/nifty50")

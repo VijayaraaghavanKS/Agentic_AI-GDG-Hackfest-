@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trading Assistant</title>
+    <title>Trade Copilot</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
 <header class="app-header">
-    <h1>Agentic Trading Assistant</h1>
+    <h1>Trade Copilot</h1>
     <span class="tag">PAPER TRADING</span>
 </header>
 
@@ -30,6 +30,13 @@ Ask me things like:
 All trades are paper trades. No real money involved.
             </div>
         </div>
+        <div class="quick-prompts" id="quickPrompts">
+            <span class="prompt-label">Quick:</span>
+            <button type="button" class="chip" data-prompt="Understand the market and I want to get into stocks">Market + get into stocks</button>
+            <button type="button" class="chip" data-prompt="Give me the best oversold stocks from Nifty 50">Best oversold stocks</button>
+            <button type="button" class="chip" data-prompt="Give me good dividend stocks with buy and sell points">Dividend opportunities</button>
+            <button type="button" class="chip" data-prompt="Show my portfolio and performance">My portfolio</button>
+        </div>
         <div class="chat-input-area">
             <input type="text" id="chatInput" placeholder="Ask about the market, scan stocks, or trade..." autocomplete="off">
             <button id="sendBtn">Send</button>
@@ -48,6 +55,18 @@ All trades are paper trades. No real money involved.
             <h3>Nifty 50 Signal Board</h3>
             <button class="btn-refresh" onclick="loadSignalBoard()">Refresh</button>
             <div id="signalBoardContent"><span class="loading">Loading...</span></div>
+        </div>
+
+        <div class="card">
+            <h3>Oversold backtest (Nifty 50)</h3>
+            <button class="btn-refresh" onclick="loadBacktestSummary()">Run backtest</button>
+            <div id="backtestContent"><span class="muted">Click Run to see 2Y oversold strategy P&L.</span></div>
+        </div>
+
+        <div class="card">
+            <h3>Dividend opportunities</h3>
+            <button class="btn-refresh" onclick="loadDividendTop()">Refresh</button>
+            <div id="dividendContent"><span class="muted">Click Refresh for top dividend picks.</span></div>
         </div>
 
         <div class="card">
