@@ -6,6 +6,7 @@ export default function Header({ ticker, setTicker, onRun, loading, regime, sync
   const handleRun = () => {
     const t = input.trim().toUpperCase();
     if (!t) return;
+    setInput(t);
     setTicker(t);
     onRun(t);
   };
@@ -33,7 +34,19 @@ export default function Header({ ticker, setTicker, onRun, loading, regime, sync
             placeholder="Search Ticker (e.g. RELIANCE)"
             value={input}
             onChange={(e) => setInput(e.target.value.toUpperCase())}
-            onKeyDown={(e) => e.key === "Enter" && handleRun()}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setInput(ticker || "");
+                return;
+              }
+              if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                handleRun();
+                return;
+              }
+              if (e.key === "Enter") {
+                handleRun();
+              }
+            }}
           />
         </div>
       </div>
