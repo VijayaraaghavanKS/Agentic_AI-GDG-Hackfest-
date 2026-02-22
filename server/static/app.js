@@ -92,6 +92,7 @@ function formatInr(value) {
 
 async function loadSignalBoard() {
     const el = document.getElementById("signalBoardContent");
+    if (!el) return;
     el.innerHTML = '<span class="loading">Scanning Nifty 50 signals...</span>';
     try {
         const res = await fetch(`${API}/api/signals/nifty50?include_news=true&max_news=2&news_days=1`);
@@ -301,10 +302,154 @@ async function loadPortfolio() {
     }
 }
 
+// ---- Scanner ----
+let scanPollInterval = null;
+
+async function manualScan() {
+    const btn = document.getElementById("manualScanBtn");
+    if (!btn) return;
+    btn.disabled = true;
+    btn.textContent = "Scanning...";
+    try {
+        const res = await fetch(`${API}/api/scan`, { method: "POST" });
+        const data = await res.json();
+        loadPortfolio();
+        loadScanStatus();
+    } catch (err) {
+        console.error("Manual scan error:", err);
+    }
+    btn.disabled = false;
+    btn.textContent = "Scan Now";
+}
+
+async function startAutoScan() {
+    const startBtn = document.getElementById("startAutoBtn");
+    const stopBtn = document.getElementById("stopAutoBtn");
+    if (!startBtn || !stopBtn) return;
+    startBtn.disabled = true;
+
+    try {
+        const res = await fetch(`${API}/api/scan/start`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ interval_seconds: 300 }),
+        });
+        const data = await res.json();
+        if (data.status === "started" || data.status === "already_running") {
+            stopBtn.disabled = false;
+            updateScanBadge(true);
+            startScanPolling();
+        }
+    } catch (err) {
+        console.error("Start auto-scan error:", err);
+        startBtn.disabled = false;
+    }
+}
+
+async function stopAutoScan() {
+    const startBtn = document.getElementById("startAutoBtn");
+    const stopBtn = document.getElementById("stopAutoBtn");
+    if (!startBtn || !stopBtn) return;
+    stopBtn.disabled = true;
+
+    try {
+        await fetch(`${API}/api/scan/stop`, { method: "POST" });
+        startBtn.disabled = false;
+        updateScanBadge(false);
+        stopScanPolling();
+    } catch (err) {
+        console.error("Stop auto-scan error:", err);
+        stopBtn.disabled = false;
+    }
+}
+
+function updateScanBadge(running) {
+    const badge = document.getElementById("scanStatusBadge");
+    const status = document.getElementById("scannerStatus");
+    if (!badge || !status) return;
+    if (running) {
+        badge.textContent = "SCANNER ON";
+        badge.classList.add("active");
+        status.innerHTML = '<span class="status-indicator on"></span> Auto-scanning every 5 min';
+    } else {
+        badge.textContent = "SCANNER OFF";
+        badge.classList.remove("active");
+        status.innerHTML = '<span class="status-indicator off"></span> Scanner idle';
+    }
+}
+
+async function loadScanStatus() {
+    try {
+        const res = await fetch(`${API}/api/scan/status`);
+        const data = await res.json();
+        updateScanBadge(data.auto_scan_running);
+
+        if (data.auto_scan_running) {
+            const startBtn = document.getElementById("startAutoBtn");
+            const stopBtn = document.getElementById("stopAutoBtn");
+            if (startBtn) startBtn.disabled = true;
+            if (stopBtn) stopBtn.disabled = false;
+            startScanPolling();
+        }
+
+        renderScanLog(data.recent_logs || []);
+    } catch (err) {
+        console.error("Load scan status error:", err);
+    }
+}
+
+function renderScanLog(logs) {
+    const el = document.getElementById("scanLog");
+    if (!el) return;
+    if (!logs.length) {
+        el.innerHTML = '<div class="empty-msg">No scan activity yet.</div>';
+        return;
+    }
+    el.innerHTML = logs.map(log => {
+        const time = log.timestamp ? log.timestamp.split(" ")[1] : "";
+        return `<div class="scan-log-entry">
+            <span class="time">${time}</span>
+            <span class="type ${log.type}">${log.type}</span>
+            ${log.message}
+        </div>`;
+    }).join("");
+    el.scrollTop = el.scrollHeight;
+}
+
+function startScanPolling() {
+    if (scanPollInterval) return;
+    scanPollInterval = setInterval(async () => {
+        try {
+            const res = await fetch(`${API}/api/scan/status`);
+            const data = await res.json();
+            renderScanLog(data.recent_logs || []);
+            if (!data.auto_scan_running) {
+                updateScanBadge(false);
+                stopScanPolling();
+                const startBtn = document.getElementById("startAutoBtn");
+                const stopBtn = document.getElementById("stopAutoBtn");
+                if (startBtn) startBtn.disabled = false;
+                if (stopBtn) stopBtn.disabled = true;
+            }
+            loadPortfolio();
+        } catch (err) {
+            console.error("Scan poll error:", err);
+        }
+    }, 10000);
+}
+
+function stopScanPolling() {
+    if (scanPollInterval) {
+        clearInterval(scanPollInterval);
+        scanPollInterval = null;
+    }
+}
+
 // ---- Init ----
 document.addEventListener("DOMContentLoaded", () => {
     loadRegime();
     loadSignalBoard();
     loadPortfolio();
+    loadScanStatus();
     chatInput.focus();
 });

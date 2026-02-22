@@ -1,28 +1,16 @@
 """
-pipeline/orchestrator.py – Sequential ADK Pipeline Orchestrator
-================================================================
-Wires the full 6-step Regime-Aware Trading pipeline:
+pipeline/orchestrator.py – Lightweight orchestrator facade
+==========================================================
+Provides the public `Orchestrator` class used by `main.py` and `app.py`.
 
-    Step 1: quant_tool      → Fetch OHLCV, compute indicators, classify regime
-    Step 2: sentiment_agent  → Search news/macro, write sentiment summary
-    Step 3: bull_agent       → Read quant + sentiment, write bullish thesis
-    Step 4: bear_agent       → Read all above + bull thesis, write bearish teardown
-    Step 5: cio_agent        → Synthesise debate into JSON trade proposal
-    Step 6: risk_tool        → Enforce ATR stop-loss & 1% position sizing
-
-Uses ADK's InMemorySessionService as the shared whiteboard between steps.
-
-TODO: Implement Orchestrator.run()
+Execution is delegated to the unified pipeline in `agents/pipeline.py`.
 """
 
 from __future__ import annotations
 
 
 class Orchestrator:
-    """
-    Initialises the ADK session, runs each pipeline step sequentially,
-    and returns the final validated trade proposal (or None) to the caller.
-    """
+    """Thin facade over `agents.pipeline.run_pipeline`."""
 
     def __init__(self, ticker: str, portfolio_equity: float = 1_000_000.0):
         """
@@ -33,12 +21,17 @@ class Orchestrator:
         self.ticker = ticker
         self.portfolio_equity = portfolio_equity
 
-    async def run(self) -> dict:
+    def run(self) -> dict:
         """
-        Execute the full 6-step pipeline.
+        Execute the full production trading pipeline.
 
         Returns:
-            The final session.state dict containing all intermediate outputs
-            and the risk-validated trade in KEY_FINAL_TRADE.
+            Pipeline output dict with regime, sentiment, scenario, strategy,
+            trade execution result, and memory stats.
         """
-        raise NotImplementedError("TODO: Wire up the 6-step ADK pipeline")
+        from agents.pipeline import run_pipeline
+
+        return run_pipeline(
+            ticker=self.ticker,
+            portfolio_value=self.portfolio_equity,
+        )

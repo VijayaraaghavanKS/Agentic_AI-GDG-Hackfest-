@@ -56,6 +56,17 @@ All trades are paper trades. No real money involved.
             <div id="portfolioContent"><span class="loading">Loading...</span></div>
             <div id="portfolioCharts" class="portfolio-charts"></div>
         </div>
+
+        <div class="card">
+            <h3>Scanner <span id="scanStatusBadge" class="scan-badge">SCANNER OFF</span></h3>
+            <div id="scannerStatus"><span class="status-indicator off"></span> Scanner idle</div>
+            <div class="scan-controls">
+                <button id="manualScanBtn" class="btn-scan" onclick="manualScan()">Scan Now</button>
+                <button id="startAutoBtn" class="btn-scan" onclick="startAutoScan()">Start Auto</button>
+                <button id="stopAutoBtn" class="btn-scan" onclick="stopAutoScan()" disabled>Stop Auto</button>
+            </div>
+            <div id="scanLog" class="scan-log"><div class="empty-msg">No scan activity yet.</div></div>
+        </div>
     </div>
 </div>
 

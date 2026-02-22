@@ -1,50 +1,49 @@
 """
 main.py – Regime-Aware Trading Pipeline (CLI Entry Point)
 ===========================================================
-Runs the full 6-step pipeline from the command line for a single ticker.
+Runs the full 8-step unified pipeline from the command line.
 
 Usage:
     python main.py                          # Run for first ticker in WATCH_LIST
     python main.py --ticker RELIANCE.NS     # Run for a specific ticker
     python main.py --equity 500000          # Custom portfolio equity
 
-Pipeline Steps:
-    1. Quant Engine (Python Tool)  → Fetch OHLCV, indicators, regime
-    2. Sentiment Agent (ADK)       → Search news/macro
-    3. Bull Agent (ADK)            → Bullish thesis
-    4. Bear Agent (ADK)            → Bearish teardown
-    5. CIO Agent (ADK)             → Synthesise into trade proposal JSON
-    6. Risk Handcuffs (Python Tool)→ Enforce ATR stop-loss & 1% sizing
+Pipeline Steps (Unified):
+    1. RegimeAgent      → Detect bull/bear/sideways + volatility
+    2. SentimentAgent   → Score news + danger flag
+    3. ScenarioAgent    → Regime × Sentiment → scenario label
+    4. StrategyAgent    → Scenario → candidate strategies
+    5. BacktestAgent    → Quick backtest on 30 candles
+    6. SelectorAgent    → Score + memory bias → select best
+    7. PaperTradeAgent  → Execute with R:R=2.0
+    8. MemoryAgent      → Store outcome for learning
 """
 
-import asyncio
 import argparse
 
 from config import WATCH_LIST, DEFAULT_PORTFOLIO_EQUITY
 from pipeline import Orchestrator
-from pipeline.session_keys import KEY_FINAL_TRADE, ALL_KEYS
-from utils.helpers import pretty_print_state, format_currency_inr
+from utils.helpers import format_currency_inr
 
 
 # ── Main Runner ───────────────────────────────────────────────────────────────
 
-async def run_pipeline(
+def run_pipeline(
     ticker: str,
     portfolio_equity: float = DEFAULT_PORTFOLIO_EQUITY,
 ) -> dict:
     """
-    Execute the full 6-step Regime-Aware pipeline for one ticker.
+    Execute the full trading pipeline for one ticker.
 
     Args:
         ticker:           The stock ticker symbol (e.g. 'RELIANCE.NS').
         portfolio_equity: Total portfolio equity in INR for position sizing.
 
     Returns:
-        The final session.state dict containing all intermediate outputs
-        and the risk-validated trade in KEY_FINAL_TRADE.
+        Pipeline result dict with scenario, strategy, trade, and memory stats.
     """
     orchestrator = Orchestrator(ticker=ticker, portfolio_equity=portfolio_equity)
-    return await orchestrator.run()
+    return orchestrator.run()
 
 
 # ── CLI Entry Point ───────────────────────────────────────────────────────────
@@ -75,31 +74,46 @@ def main():
     print(f"  Equity:    {format_currency_inr(args.equity)}")
     print(f"{'='*60}\n")
 
-    # Run the async pipeline
-    final_state = asyncio.run(run_pipeline(ticker=ticker, portfolio_equity=args.equity))
+    # Run the pipeline
+    result = run_pipeline(ticker=ticker, portfolio_equity=args.equity)
 
-    # Debug: print entire shared whiteboard
-    pretty_print_state(final_state)
-
-    # Display final trade result
-    final_trade = final_state.get(KEY_FINAL_TRADE)
-    print("\n FINAL VALIDATED TRADE")
-    print("-" * 40)
-    if final_trade and not final_trade.get("killed"):
-        print(f"  Ticker:        {final_trade.get('ticker', 'N/A')}")
-        print(f"  Action:        {final_trade.get('action', 'N/A')}")
-        print(f"  Entry:         {format_currency_inr(final_trade.get('entry_price', 0))}")
-        print(f"  Stop Loss:     {format_currency_inr(final_trade.get('stop_loss', 0))}")
-        print(f"  Target:        {format_currency_inr(final_trade.get('target_price', 0))}")
-        print(f"  Position Size: {final_trade.get('position_size', 0)} shares")
-        print(f"  Total Risk:    {format_currency_inr(final_trade.get('total_risk', 0))}")
-        print(f"  Risk/Reward:   1:{final_trade.get('risk_reward_ratio', 0):.2f}")
-        print(f"  Regime:        {final_trade.get('regime', 'N/A')}")
-    elif final_trade and final_trade.get("killed"):
-        print(f"  ⛔ TRADE KILLED by Risk Engine")
-        print(f"  Reason: {final_trade.get('kill_reason', 'Unknown')}")
+    # Print result summary
+    print("\n" + "=" * 60)
+    print("PIPELINE RESULT:")
+    print("=" * 60)
+    if result.get("status") == "success":
+        print(f"  Scenario:  {result.get('scenario', {}).get('label', 'N/A')}")
+        print(f"  Strategy:  {result.get('strategy_selected', 'N/A')}")
+        print(f"  Trade:     {result.get('trade_status', 'N/A')}")
+        print(f"  Reason:    {result.get('trade_reason', 'N/A')}")
     else:
-        print("  No trade proposal generated.")
+        print(f"  Error: {result.get('reason', 'Unknown')}")
+
+    # Display trade details if present
+    trade = result.get('trade')
+    print("\n TRADE DETAILS")
+    print("-" * 40)
+    if trade:
+        print(f"  Ticker:        {trade.get('ticker', 'N/A')}")
+        print(f"  Strategy:      {trade.get('strategy_name', 'N/A')}")
+        print(f"  Entry:         {format_currency_inr(trade.get('entry', 0))}")
+        print(f"  Stop Loss:     {format_currency_inr(trade.get('stop', 0))}")
+        print(f"  Target:        {format_currency_inr(trade.get('target', 0))}")
+        print(f"  Position Size: {trade.get('size', 0)} shares")
+        print(f"  Risk/Share:    {format_currency_inr(trade.get('risk_per_share', 0))}")
+        print(f"  R:R Ratio:     1:{trade.get('rr_ratio', 0):.2f}")
+        print(f"  Scenario:      {trade.get('scenario_label', 'N/A')}")
+    else:
+        print(f"  {result.get('trade_reason', 'No trade generated')}")
+
+    # Display memory stats
+    memory_stats = result.get('memory_stats', {})
+    if memory_stats:
+        print("\n MEMORY STATS")
+        print("-" * 40)
+        print(f"  Total Trades:  {memory_stats.get('total_trades', 0)}")
+        print(f"  Win Rate:      {memory_stats.get('win_rate', 0):.2%}")
+        print(f"  Avg PnL:       {memory_stats.get('avg_pnl_pct', 0):.2%}")
     print()
 
 

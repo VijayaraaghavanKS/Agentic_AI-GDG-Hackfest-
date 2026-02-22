@@ -1,7 +1,7 @@
 """
-pipeline/ – ADK Orchestration Layer
-=====================================
-Wires the full sequential ADK pipeline and manages the shared whiteboard.
+pipeline/ – Public orchestration interface
+==========================================
+Exports the `Orchestrator` facade used by CLI/UI entrypoints.
 
 Usage:
     from pipeline import Orchestrator

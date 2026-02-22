@@ -16,12 +16,20 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-# Load environment from trading_agents/.env
-_env_path = Path(__file__).resolve().parent.parent / "trading_agents" / ".env"
-load_dotenv(_env_path)
+# Load environment from root .env (has Vertex AI creds)
+_project_root = str(Path(__file__).resolve().parent.parent)
+_root_env = Path(_project_root) / ".env"
+load_dotenv(_root_env)
+
+# Also try trading_agents/.env as fallback
+_ta_env = Path(_project_root) / "trading_agents" / ".env"
+if _ta_env.exists():
+    load_dotenv(_ta_env, override=False)
+
+# Ensure Vertex AI env var is set for ADK
+os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "true")
 
 # Ensure project root is on sys.path so trading_agents is importable
-_project_root = str(Path(__file__).resolve().parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
@@ -38,6 +46,13 @@ from trading_agents.tools.portfolio import (
     reset_portfolio,
 )
 from trading_agents.regime_agent import analyze_regime
+from scheduler import (
+    run_single_scan,
+    start_auto_scan,
+    stop_auto_scan,
+    get_scan_status,
+    get_scan_log,
+)
 
 app = FastAPI(title="Agentic Trading Assistant", version="1.0.0")
 
@@ -83,21 +98,26 @@ async def index():
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
-    session_id = await _get_session_id()
-    user_content = types.Content(
-        role="user", parts=[types.Part.from_text(text=req.message)]
-    )
+    try:
+        session_id = await _get_session_id()
+        user_content = types.Content(
+            role="user", parts=[types.Part.from_text(text=req.message)]
+        )
 
-    reply_parts: list[str] = []
-    async for event in _runner.run_async(
-        user_id=_USER_ID, session_id=session_id, new_message=user_content
-    ):
-        if event.content and event.content.parts:
-            for part in event.content.parts:
-                if part.text and part.text.strip():
-                    reply_parts.append(part.text.strip())
+        reply_parts: list[str] = []
+        async for event in _runner.run_async(
+            user_id=_USER_ID, session_id=session_id, new_message=user_content
+        ):
+            if event.content and event.content.parts:
+                for part in event.content.parts:
+                    if part.text and part.text.strip():
+                        reply_parts.append(part.text.strip())
 
-    reply = "\n\n".join(reply_parts) if reply_parts else "No response from agent."
+        reply = "\n\n".join(reply_parts) if reply_parts else "No response from agent."
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        reply = f"Agent error: {type(exc).__name__}: {exc}"
     return ChatResponse(reply=reply)
 
 
@@ -107,6 +127,8 @@ async def regime():
     result = await loop.run_in_executor(None, analyze_regime)
     return result
 
+
+# ── Portfolio Endpoints ──────────────────────────────────────────────────────
 
 @app.get("/api/portfolio")
 async def portfolio():
@@ -128,6 +150,8 @@ async def portfolio_reset():
     return reset_portfolio()
 
 
+# ── Nifty 50 Signal Board ───────────────────────────────────────────────────
+
 @app.get("/api/signals/nifty50")
 async def nifty50_signals(
     limit: int = 50,
@@ -144,3 +168,41 @@ async def nifty50_signals(
         news_days,
     )
     return await loop.run_in_executor(None, fn)
+
+
+# ── Scanner / Auto-Scan Endpoints ────────────────────────────────────────────
+
+@app.post("/api/scan")
+async def manual_scan():
+    """Run a single scan-and-trade cycle (manual trigger)."""
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, run_single_scan)
+    return result
+
+
+class AutoScanRequest(BaseModel):
+    interval_seconds: int = 300
+
+
+@app.post("/api/scan/start")
+async def start_scan(req: AutoScanRequest):
+    """Start the background auto-scan loop."""
+    return start_auto_scan(interval_seconds=req.interval_seconds)
+
+
+@app.post("/api/scan/stop")
+async def stop_scan():
+    """Stop the background auto-scan loop."""
+    return stop_auto_scan()
+
+
+@app.get("/api/scan/status")
+async def scan_status():
+    """Get current auto-scan status and recent logs."""
+    return get_scan_status()
+
+
+@app.get("/api/scan/log")
+async def scan_log(limit: int = 50):
+    """Get scan log entries."""
+    return get_scan_log(limit=limit)

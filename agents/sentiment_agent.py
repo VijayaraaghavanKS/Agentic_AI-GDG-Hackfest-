@@ -1,212 +1,96 @@
 """
-agents/sentiment_agent.py – The Sentiment Agent (ADK Agent – Step 3)
-=====================================================================
-PIPELINE STEP: 3 (after QuantAgent, before BullAgent)
-
-RESPONSIBILITY:
-    - Analyse recent news, macro conditions, and market sentiment for the
-      target ticker using Google Search grounding.
-    - Write a structured SENTIMENT_SUMMARY to the ADK session state
-      at KEY_SENTIMENT.
-
-READS FROM STATE:
-    - KEY_QUANT_SNAPSHOT  (regime context from Step 1)
-
-WRITES TO STATE:
-    - KEY_SENTIMENT
-
-CRITICAL CONSTRAINTS:
-    - NEVER calculates indicators or modifies quant results.
-    - NEVER generates trade recommendations, price targets, or stop losses.
-    - ONLY analyses sentiment and catalysts.
-    - Must use grounded web search results when available.
-    - Must not invent news.
+agents/sentiment_agent.py – News Sentiment Scorer
+====================================================
+Input: list of news headlines
+Logic: keyword scoring → score/bucket/danger
+Output: NewsSentiment
 """
 
 from __future__ import annotations
 
-import logging
+import re
+from typing import List
 
-from google.adk.agents import LlmAgent
-from google.adk.tools import google_search
-from google.genai.types import GenerateContentConfig
+from core.models import NewsSentiment
 
-from config import GEMINI_MODEL, AGENT_TEMPERATURE, MAX_OUTPUT_TOKENS
-from pipeline.session_keys import KEY_QUANT_SNAPSHOT, KEY_SENTIMENT
 
-# ── Module-level logger ────────────────────────────────────────────────────────
-logger: logging.Logger = logging.getLogger(__name__)
+_POSITIVE = {
+    "upgrade", "buy", "outperform", "beat", "profit", "growth", "surge",
+    "rally", "bullish", "record", "strong", "gain", "jumps", "soars",
+    "rises", "dividend", "expansion", "acquisition", "optimistic", "boost",
+    "recovery", "earnings", "revenue", "ipo", "approval",
+}
 
-# ── System Instruction ─────────────────────────────────────────────────────────
-_INSTRUCTION: str = """\
-You are SentimentAgent, a professional macro and company sentiment analyst
-for a regime-aware trading system.
+_NEGATIVE = {
+    "downgrade", "sell", "underperform", "miss", "loss", "decline", "crash",
+    "bearish", "weak", "fall", "drops", "sinks", "cut", "warning", "risk",
+    "investigation", "fraud", "default", "layoff", "shutdown", "bankruptcy",
+    "debt", "lawsuit", "penalty", "probe", "scandal", "recession",
+}
 
-Your job is to analyze recent news and macro conditions affecting a stock.
+_DANGER_KEYWORDS = {
+    "crisis", "crash", "halt", "ban", "emergency", "collapse", "default",
+    "bankrupt", "fraud", "scam", "seized", "suspended", "delisted",
+}
 
-You DO NOT calculate indicators.
-You DO NOT modify quant results.
-You DO NOT generate trade recommendations.
 
-You ONLY analyze sentiment and catalysts.
+def _score_headline(headline: str) -> float:
+    words = set(re.findall(r"[a-z]+", headline.lower()))
+    pos = len(words & _POSITIVE)
+    neg = len(words & _NEGATIVE)
+    total = pos + neg
+    return round((pos - neg) / total, 4) if total > 0 else 0.0
 
-You must use grounded web search results.
 
-You must use google_search before producing the final answer.
+def _has_danger(headline: str) -> bool:
+    words = set(re.findall(r"[a-z]+", headline.lower()))
+    return bool(words & _DANGER_KEYWORDS)
 
-You read from session state:
 
-KEY_QUANT_SNAPSHOT
+def analyze(headlines: List[str]) -> dict:
+    """Score news headlines and produce sentiment output.
 
-The quant snapshot contains:
+    Parameters
+    ----------
+    headlines : list[str]
+        Raw news headlines.
 
-ticker
-price
-regime
-rsi
-atr
-moving averages
-volatility
-timestamp
+    Returns
+    -------
+    dict
+        status, sentiment (NewsSentiment), details.
+    """
+    if not headlines:
+        sentiment = NewsSentiment(score=0.0, bucket="neutral", danger=False)
+        return {
+            "status": "success",
+            "sentiment": sentiment,
+            "details": {"headline_count": 0, "note": "No headlines provided"},
+        }
 
-Use it only as context.
+    scores = [_score_headline(h) for h in headlines]
+    avg_score = round(sum(scores) / len(scores), 4)
 
-Do not modify quant values.
-Do not recompute indicators.
+    if avg_score >= 0.2:
+        bucket = "positive"
+    elif avg_score <= -0.2:
+        bucket = "negative"
+    else:
+        bucket = "neutral"
 
-The ticker symbol is available in KEY_QUANT_SNAPSHOT.
+    # Danger: any headline has crisis keywords OR score extremely negative
+    danger = any(_has_danger(h) for h in headlines) or avg_score <= -0.6
 
-Always base your analysis on that ticker.
+    sentiment = NewsSentiment(score=avg_score, bucket=bucket, danger=danger)
 
-Your task is to analyze:
-
-1) Recent company-specific news
-2) Sector developments
-3) Macro conditions affecting the stock
-4) Market sentiment
-
-Focus on:
-
-Earnings
-Guidance
-Regulatory changes
-Sector trends
-Commodity prices (if relevant)
-Interest rates
-RBI / Fed policy
-Corporate developments
-Analyst upgrades/downgrades
-Institutional flows
-
-Prioritize:
-
-Last 24-72 hours.
-
-If unavailable use last 1-2 weeks.
-
-Avoid:
-
-Long history
-Generic company descriptions
-Wikipedia summaries
-Financial ratios
-Technical indicators
-
-This is a trading system, not a research report.
-
-REGIME-AWARE RULES:
-
-If regime = BEAR:
-Highlight risks and negative catalysts carefully.
-
-If regime = BULL:
-Highlight growth catalysts and positive sentiment.
-
-If regime = NEUTRAL:
-Present balanced sentiment.
-
-If no reliable recent news is found:
-State that sentiment is unclear and reduce Confidence.
-Do not invent news.
-
-Confidence Scoring Guide:
-
-0.8 - 1.0
-Clear strong sentiment and major catalysts
-
-0.5 - 0.7
-Mixed signals or moderate news flow
-
-0.2 - 0.4
-Weak or unclear sentiment
-
-0.0 - 0.2
-Little or no recent information
-
-Output EXACTLY this format:
-
-SENTIMENT_SUMMARY:
-
-Company Sentiment:
-...
-
-Macro Environment:
-...
-
-Sector Conditions:
-...
-
-Key Catalysts:
-...
-
-Market Narrative:
-...
-
-Confidence:
-0.X
-
-Always include all sections.
-Keep explanations concise.
-No markdown tables.
-No bullet spam.
-No emojis.
-No trading recommendations.
-No price targets.
-No stop losses.
-Keep output under 1000 words.
-"""
-
-logger.debug("SentimentAgent instruction loaded (%d chars)", len(_INSTRUCTION))
-
-# ── Agent Definition ───────────────────────────────────────────────────────────
-sentiment_agent: LlmAgent = LlmAgent(
-    name="SentimentAgent",
-    model=GEMINI_MODEL,
-    description=(
-        "Analyzes real-time news and macro sentiment using Google Search. "
-        "Reads KEY_QUANT_SNAPSHOT and writes KEY_SENTIMENT. "
-        "Step 3 of the trading pipeline."
-    ),
-    instruction=_INSTRUCTION,
-    tools=[google_search],
-    output_key=KEY_SENTIMENT,
-    generate_content_config=GenerateContentConfig(
-        temperature=AGENT_TEMPERATURE,
-        max_output_tokens=MAX_OUTPUT_TOKENS,
-    ),
-)
-
-logger.info(
-    "SentimentAgent initialized | model=%s | reads=%s | writes=%s",
-    GEMINI_MODEL,
-    KEY_QUANT_SNAPSHOT,
-    KEY_SENTIMENT,
-)
-
-# ── Standalone Test ────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    print(f"SentimentAgent initialized")
-    print(f"Model: {GEMINI_MODEL}")
-    print(f"Reads: {KEY_QUANT_SNAPSHOT}")
-    print(f"Writes: {KEY_SENTIMENT}")
-    print(f"Tools: [google_search]")
+    return {
+        "status": "success",
+        "sentiment": sentiment,
+        "details": {
+            "headline_count": len(headlines),
+            "avg_score": avg_score,
+            "bucket": bucket,
+            "danger": danger,
+            "headlines_scored": list(zip(headlines[:5], scores[:5])),
+        },
+    }

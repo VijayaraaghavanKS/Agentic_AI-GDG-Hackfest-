@@ -1,19 +1,23 @@
 """
-quant/risk_engine.py – Deterministic Risk Engine
-=================================================
+risk/risk_engine.py – Deterministic Risk Engine (MERGED)
+=========================================================
 Production-grade, hard risk gate for all trade proposals.
 
 This module enforces strict trading risk rules using pure Python.
 It does NOT use Gemini, ADK, or any LLM.
 
+MERGED from origin/main (validation, frozen dataclass, BUY+SELL, regime
+guard, _assert_finite, _killed_trade) + scan-branch (news sentiment
+penalty, affordability cap, to_dict).
+
 Design Philosophy:
-    • This is the final deterministic safety layer before execution.
-    • LLM proposals MUST pass through here.
-    • The risk engine can: modify stop-loss, modify position size, reject trades.
-    • The LLM CANNOT override risk rules.
+    * This is the final deterministic safety layer before execution.
+    * LLM proposals MUST pass through here.
+    * The risk engine can: modify stop-loss, modify position size, reject trades.
+    * The LLM CANNOT override risk rules.
 
 Data Flow:
-    CIO Proposal → apply_risk_limits() → ValidatedTrade OR KILLED
+    CIO Proposal -> apply_risk_limits() -> ValidatedTrade OR KILLED
 """
 
 from __future__ import annotations
@@ -29,15 +33,15 @@ from config import (
     MIN_RISK_REWARD,
 )
 
-# ──────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────
 # Logger
-# ──────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────
 
 logger = logging.getLogger(__name__)
 
-# ──────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────
 # Constants
-# ──────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────
 
 VALID_ACTIONS: frozenset[str] = frozenset({"BUY", "SELL", "HOLD"})
 VALID_REGIMES: frozenset[str] = frozenset({"BULL", "BEAR", "NEUTRAL"})
@@ -50,21 +54,21 @@ _REQUIRED_FIELDS: tuple[str, ...] = (
     "conviction_score",
     "regime",
 )
+_RR_EPSILON: float = 1e-6
 
-# ──────────────────────────────────────────────────────────────
-# Regime → Allowed Directions
-# ──────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────
+# Regime -> Allowed Directions
+# ────────────────────────────────────────────────────────────
 
 _REGIME_ALLOWED_ACTIONS: dict[str, frozenset[str]] = {
     "BULL":    frozenset({"BUY"}),
-    "BEAR":    frozenset({"SELL"}),
+    "BEAR":   frozenset({"SELL"}),
     "NEUTRAL": frozenset({"BUY", "SELL"}),
 }
 
-# ──────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────
 # Validated Trade Dataclass
-# ──────────────────────────────────────────────────────────────
-
+# ────────────────────────────────────────────────────────────
 
 @dataclass(frozen=True, slots=True)
 class ValidatedTrade:
@@ -84,6 +88,24 @@ class ValidatedTrade:
     killed: bool
     kill_reason: Optional[str]
 
+    def to_dict(self) -> dict:
+        """Serialise for session state / UI."""
+        return {
+            "ticker": self.ticker,
+            "action": self.action,
+            "entry_price": self.entry_price,
+            "stop_loss": self.stop_loss,
+            "target_price": self.target_price,
+            "position_size": self.position_size,
+            "risk_per_share": self.risk_per_share,
+            "total_risk": self.total_risk,
+            "risk_reward_ratio": self.risk_reward_ratio,
+            "conviction_score": self.conviction_score,
+            "regime": self.regime,
+            "killed": self.killed,
+            "kill_reason": self.kill_reason,
+        }
+
     def __repr__(self) -> str:
         return (
             f"ValidatedTrade(\n"
@@ -99,9 +121,9 @@ class ValidatedTrade:
         )
 
 
-# ──────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────
 # Numeric Safety
-# ──────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────
 
 def _assert_finite(value: float, name: str) -> None:
     """Raise ValueError if *value* is NaN or Inf."""
@@ -109,9 +131,9 @@ def _assert_finite(value: float, name: str) -> None:
         raise ValueError(f"{name} must be finite, got {value!r}")
 
 
-# ──────────────────────────────────────────────────────────────
-# Helper — build a killed trade
-# ──────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────
+# Helper -- build a killed trade
+# ────────────────────────────────────────────────────────────
 
 def _killed_trade(
     proposal: dict,
@@ -122,7 +144,7 @@ def _killed_trade(
 ) -> ValidatedTrade:
     """Return a ValidatedTrade with killed=True."""
     ticker: str = proposal.get("ticker", "UNKNOWN")
-    logger.warning("[%s] KILLED — %s", ticker, reason)
+    logger.warning("[%s] KILLED -- %s", ticker, reason)
     return ValidatedTrade(
         ticker=ticker,
         action=str(proposal.get("action", "UNKNOWN")).upper(),
@@ -140,14 +162,15 @@ def _killed_trade(
     )
 
 
-# ──────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────
 # Core Function
-# ──────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────
 
 def apply_risk_limits(
     cio_proposal: dict,
     atr: float,
     portfolio_equity: float,
+    news_sentiment_score: float = 0.0,
 ) -> ValidatedTrade:
     """Apply deterministic risk limits to a CIO proposal.
 
@@ -155,12 +178,15 @@ def apply_risk_limits(
     ----------
     cio_proposal : dict
         Must contain: ticker, action, entry, target, conviction_score, regime.
-        ``raw_stop_loss`` is accepted but **ignored** — the risk engine
+        ``raw_stop_loss`` is accepted but **ignored** -- the risk engine
         always computes its own ATR-based stop-loss.
     atr : float
         Average True Range for the instrument (must be > 0).
     portfolio_equity : float
         Current portfolio equity in currency units (must be > 0).
+    news_sentiment_score : float, optional
+        Sentiment score from -1.0 to +1.0 (default 0.0).
+        If < -0.5 and BUY in BEAR/NEUTRAL -> position reduced by 25%.
 
     Returns
     -------
@@ -175,7 +201,7 @@ def apply_risk_limits(
         guards fail.
     """
 
-    # ── Step 1: Validate Required Fields ─────────────────────
+    # -- Step 1: Validate Required Fields ─────────────────────
     for field in _REQUIRED_FIELDS:
         if field not in cio_proposal:
             raise ValueError(f"Missing required field in CIO proposal: '{field}'")
@@ -187,14 +213,14 @@ def apply_risk_limits(
     conviction_score: float = float(cio_proposal["conviction_score"])
     regime: str = str(cio_proposal["regime"]).upper()
 
-    # ── Numeric Safety (NaN / Inf) ───────────────────────────
+    # -- Numeric Safety (NaN / Inf) ───────────────────────────
     _assert_finite(entry, "entry")
     _assert_finite(target, "target")
     _assert_finite(atr, "atr")
     _assert_finite(portfolio_equity, "portfolio_equity")
     _assert_finite(conviction_score, "conviction_score")
 
-    # ── Positional Guards ────────────────────────────────────
+    # -- Positional Guards ────────────────────────────────────
     if entry <= 0:
         raise ValueError(f"entry must be > 0, got {entry}")
     if target <= 0:
@@ -204,42 +230,42 @@ def apply_risk_limits(
     if portfolio_equity <= 0:
         raise ValueError(f"portfolio_equity must be > 0, got {portfolio_equity}")
 
-    # ── Conviction Validation ────────────────────────────────
+    # -- Conviction Validation ────────────────────────────────
     if not (0.0 <= conviction_score <= 1.0):
         raise ValueError(
             f"conviction_score must be in [0.0, 1.0], got {conviction_score}"
         )
 
-    # ── Action Validation ────────────────────────────────────
+    # -- Action Validation ────────────────────────────────────
     if action not in VALID_ACTIONS:
         raise ValueError(
             f"Unsupported action: '{action}'. Must be one of {sorted(VALID_ACTIONS)}"
         )
 
-    # ── Regime Validation ────────────────────────────────────
+    # -- Regime Validation ────────────────────────────────────
     if regime not in VALID_REGIMES:
         raise ValueError(
             f"Unsupported regime: '{regime}'. Must be one of {sorted(VALID_REGIMES)}"
         )
 
-    logger.info("[%s] RiskEngine start — action=%s entry=%.2f target=%.2f atr=%.2f regime=%s",
+    logger.info("[%s] RiskEngine start -- action=%s entry=%.2f target=%.2f atr=%.2f regime=%s",
                 ticker, action, entry, target, atr, regime)
 
-    # ── HOLD → always killed ─────────────────────────────────
+    # -- HOLD -> always killed ────────────────────────────────
     if action == "HOLD":
         return _killed_trade(
             cio_proposal,
             "HOLD action requires no trade",
         )
 
-    # ── Regime Guard ─────────────────────────────────────────
+    # -- Regime Guard ─────────────────────────────────────────
     if action not in _REGIME_ALLOWED_ACTIONS[regime]:
         return _killed_trade(
             cio_proposal,
-            "Trade direction conflicts with regime",
+            f"Trade direction '{action}' conflicts with regime '{regime}'",
         )
 
-    # ── Step 2: ATR Stop-Loss Override ───────────────────────
+    # -- Step 2: ATR Stop-Loss Override ───────────────────────
     # Risk engine ALWAYS controls stop-loss; raw_stop_loss is ignored.
     if action == "BUY":
         stop_loss: float = entry - (ATR_STOP_MULTIPLIER * atr)
@@ -249,7 +275,7 @@ def apply_risk_limits(
     logger.info("[%s] StopLoss=%.2f ATR=%.2f Mult=%.2f",
                 ticker, stop_loss, atr, ATR_STOP_MULTIPLIER)
 
-    # ── Step 3: Risk Per Share ───────────────────────────────
+    # -- Step 3: Risk Per Share ───────────────────────────────
     if action == "BUY":
         risk_per_share: float = entry - stop_loss
     else:  # SELL
@@ -263,40 +289,51 @@ def apply_risk_limits(
             risk_per_share=risk_per_share,
         )
 
-    # ── Step 4: Maximum Risk ─────────────────────────────────
+    # -- Step 4: Maximum Risk ─────────────────────────────────
     max_risk: float = portfolio_equity * MAX_RISK_PCT
-
     logger.info("[%s] MaxRiskAllowed=%.2f", ticker, max_risk)
 
-    # ── Step 5: Position Size ────────────────────────────────
+    # -- Step 5: Position Size ────────────────────────────────
     position_size: int = int(max_risk / risk_per_share)
 
-    logger.info("[%s] Position=%d MaxRisk=%.2f",
-                ticker, position_size, max_risk)
+    # Hard cap: never buy more shares than available cash allows (scan-branch)
+    if action == "BUY" and entry > 0:
+        max_affordable: int = int(portfolio_equity / entry)
+        position_size = min(position_size, max_affordable)
+
+    logger.info("[%s] Position=%d MaxRisk=%.2f", ticker, position_size, max_risk)
 
     if position_size < 1:
         return _killed_trade(
             cio_proposal,
-            f"position_size={position_size} < 1 — risk per share too large for equity",
+            f"position_size={position_size} < 1 -- risk per share too large for equity",
             stop_loss=stop_loss,
             risk_per_share=risk_per_share,
         )
 
-    # ── Step 6: Total Risk ───────────────────────────────────
+    # -- Step 5b: News sentiment penalty (scan-branch) ────────
+    if (news_sentiment_score < -0.5
+            and action == "BUY"
+            and regime in ("BEAR", "NEUTRAL")):
+        old_size = position_size
+        position_size = max(1, int(position_size * 0.75))
+        logger.info("[%s] Sentiment penalty: %d -> %d (score=%.2f)",
+                    ticker, old_size, position_size, news_sentiment_score)
+
+    # -- Step 6: Total Risk ───────────────────────────────────
     total_risk: float = position_size * risk_per_share
 
-    # ── Step 7: Risk-Reward Ratio ────────────────────────────
+    # -- Step 7: Risk-Reward Ratio ────────────────────────────
     if action == "BUY":
         reward: float = target - entry
     else:  # SELL
         reward = entry - target
 
     risk_reward_ratio: float = max(0.0, reward / risk_per_share)
-
     logger.info("[%s] RiskReward=%.2f", ticker, risk_reward_ratio)
 
-    # ── Step 8: Reject Bad Trades ────────────────────────────
-    if risk_reward_ratio < MIN_RISK_REWARD:
+    # -- Step 8: Reject Bad Trades ────────────────────────────
+    if (risk_reward_ratio + _RR_EPSILON) < MIN_RISK_REWARD:
         return _killed_trade(
             cio_proposal,
             f"risk_reward_ratio={risk_reward_ratio:.2f} < MIN_RISK_REWARD={MIN_RISK_REWARD}",
@@ -304,8 +341,8 @@ def apply_risk_limits(
             risk_per_share=risk_per_share,
         )
 
-    # ── Step 9 & 10: Accepted trade ─────────────────────────
-    logger.info("[%s] ACCEPTED — size=%d stop=%.2f target=%.2f rr=%.2f total_risk=%.2f",
+    # -- Step 9 & 10: Accepted trade ──────────────────────────
+    logger.info("[%s] ACCEPTED -- size=%d stop=%.2f target=%.2f rr=%.2f total_risk=%.2f",
                 ticker, position_size, stop_loss, target, risk_reward_ratio, total_risk)
 
     return ValidatedTrade(
@@ -325,9 +362,9 @@ def apply_risk_limits(
     )
 
 
-# ──────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────
 # Standalone Test
-# ──────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     logging.basicConfig(
@@ -352,3 +389,4 @@ if __name__ == "__main__":
     )
 
     print(trade)
+    print(trade.to_dict())
