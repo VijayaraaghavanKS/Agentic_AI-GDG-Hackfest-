@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+
+IST = timezone(timedelta(hours=5, minutes=30))
 from typing import Dict
 
 from trading_agents.config import (
@@ -12,7 +14,27 @@ from trading_agents.config import (
     RISK_PER_TRADE,
 )
 from trading_agents.models import PortfolioState, Position, TradePlan
-from trading_agents.tools.portfolio import load_portfolio, save_portfolio
+from trading_agents.tools.portfolio import load_portfolio, refresh_portfolio_positions, save_portfolio
+
+
+def calculate_trade_plan_from_entry_stop(symbol: str, entry: float, stop: float) -> Dict:
+    """Build a trade plan from explicit entry and stop (e.g. from dividend scan).
+
+    Derives ATR from stop distance so that target = entry + 2R (2:1 R:R).
+    Use this when you already have entry/stop from another source (e.g. dividend scanner).
+
+    Args:
+        symbol: Stock ticker.
+        entry: Entry price.
+        stop: Stop-loss price (must be < entry).
+
+    Returns:
+        dict with the trade plan details.
+    """
+    if stop >= entry:
+        return {"status": "error", "error_message": "Stop must be below entry."}
+    atr = (entry - stop) / ATR_STOP_MULTIPLIER
+    return calculate_trade_plan(symbol=symbol, close=entry, atr=atr)
 
 
 def calculate_trade_plan(symbol: str, close: float, atr: float) -> Dict:
@@ -69,6 +91,8 @@ def execute_paper_trade(symbol: str, entry: float, stop: float, target: float, q
     Returns:
         dict with execution result and updated portfolio summary.
     """
+    # Refresh lifecycle first so stale trades can close and free capacity.
+    refresh_portfolio_positions()
     portfolio = load_portfolio()
 
     if len(portfolio.open_positions) >= MAX_OPEN_TRADES:
@@ -90,7 +114,7 @@ def execute_paper_trade(symbol: str, entry: float, stop: float, target: float, q
         capital_needed = qty * entry
 
     portfolio.cash -= capital_needed
-    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    now_str = datetime.now(IST).strftime("%Y-%m-%d %H:%M IST")
     portfolio.open_positions.append(
         Position(
             symbol=symbol.upper(),

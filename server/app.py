@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from functools import partial
 from pathlib import Path
 from typing import Literal
 
@@ -28,21 +29,17 @@ if _project_root not in sys.path:
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 
-from root_agent.agent import root_agent
-from trading_agents.tools.portfolio import get_portfolio_summary, reset_portfolio
+from trading_agents.agent import root_agent
+from trading_agents.scanner_agent import get_nifty50_signal_board
+from trading_agents.tools.portfolio import (
+    get_portfolio_performance,
+    get_portfolio_summary,
+    refresh_portfolio_positions,
+    reset_portfolio,
+)
 from trading_agents.regime_agent import analyze_regime
 
-import math
-
-import numpy as np
-import pandas as pd
-import yfinance as yf
-
-from quant.data_fetcher import fetch_ohlcv
-from quant.indicators import compute_indicators
-from quant.regime_classifier import classify_regime
-
-app = FastAPI(title="Agentic Trading Assistant", version="1.0.0")
+app = FastAPI(title="Trade Copilot", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -201,198 +198,155 @@ async def portfolio():
     return get_portfolio_summary()
 
 
+@app.get("/api/portfolio/performance")
+async def portfolio_performance():
+    return get_portfolio_performance()
+
+
+@app.post("/api/portfolio/refresh")
+async def portfolio_refresh():
+    return refresh_portfolio_positions()
+
+
 @app.post("/api/portfolio/reset")
 async def portfolio_reset():
     return reset_portfolio()
 
 
-@app.get("/api/market", response_model=MarketResponse)
+@app.get("/api/backtest/oversold-summary")
+async def backtest_oversold_summary(max_stocks: int = 10):
+    """Run oversold bounce backtest on first Nifty 50 stocks; return summary with P&L for dashboard."""
+    from trading_agents.tools.backtest_oversold import backtest_oversold_nifty50
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None,
+        lambda: backtest_oversold_nifty50(years=2, max_stocks=max_stocks, use_portfolio_sizing=True),
+    )
+
+
+@app.get("/api/backtest/oversold-best")
+async def backtest_oversold_best(top_n: int | None = None):
+    """Run oversold backtest on full Nifty 50, return only stocks that pass (win>=50%, >=3 trades). top_n: limit to top N (e.g. 5)."""
+    from trading_agents.tools.backtest_oversold import get_best_oversold_nifty50
+    loop = asyncio.get_event_loop()
+    def _run():
+        out = get_best_oversold_nifty50(years=2, min_win_rate_pct=50, min_trades=3)
+        if out.get("status") != "success":
+            return out
+        best = out.get("best_stocks", [])
+        if top_n is not None and top_n > 0:
+            best = best[:top_n]
+            out["best_stocks"] = best
+        out["total_best_pnl_inr"] = round(sum(s.get("pnl_inr", 0) or 0 for s in best), 2)
+        return out
+    return await loop.run_in_executor(None, _run)
+
+
+@app.get("/api/dividend/top")
+async def dividend_top():
+    """Fetch top dividend opportunities (Moneycontrol + scan) for dashboard."""
+    from trading_agents.dividend_agent import scan_dividend_opportunities
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, lambda: scan_dividend_opportunities(min_days_to_ex=1))
+
+
+@app.get("/api/market")
 async def market(
-    ticker: str = Query(..., min_length=1),
-    period: str = Query("6mo"),
-    interval: Literal["1d", "1h", "30m", "15m"] = Query("1d"),
-    limit: int = Query(180, ge=50, le=400),
+    ticker: str = "^NSEI",
+    period: str = "6mo",
+    interval: str = "1d",
+    limit: int = 500,
 ):
-    """Return lightweight OHLCV + indicators for charting.
+    """OHLCV + indicators for market chart. Ticker: symbol (e.g. RELIANCE, ^NSEI). Period: 1d,5d,1mo,3mo,6mo,1y,2y. Interval: 1d,1wk."""
+    import yfinance as yf
+    loop = asyncio.get_event_loop()
 
-    This is intentionally small and UI-friendly (no DataFrames).
-    """
-    loop = asyncio.get_running_loop()
+    def _run():
+        sym = ticker.strip().upper()
+        if not sym.startswith("^") and not sym.endswith(".NS"):
+            sym = sym + ".NS"
+        t = yf.Ticker(sym)
+        hist = t.history(period=period, interval=interval)
+        if hist is None or len(hist) == 0:
+            return {"status": "error", "error_message": f"No data for {ticker}"}
+        hist = hist.tail(limit)
+        if len(hist) < 2:
+            return {"status": "error", "error_message": "Insufficient bars"}
+        closes = hist["Close"].ffill().tolist()
+        highs = hist["High"].fillna(hist["Close"]).tolist()
+        lows = hist["Low"].fillna(hist["Close"]).tolist()
+        opens = hist["Open"].fillna(hist["Close"]).tolist()
+        volumes = hist["Volume"].fillna(0).astype(int).tolist()
+        dates = [d.isoformat()[:10] for d in hist.index]
 
-    def _work() -> dict:  # noqa: PLR0912
-        # ── 1. Normalise ticker (replicate _normalise_ticker logic) ────────────
-        t = ticker.strip().upper()
-        if not t.startswith("^") and "." not in t:
-            t = f"{t}.NS"
+        def sma(series, n):
+            out = [None] * len(series)
+            for i in range(n - 1, len(series)):
+                out[i] = round(sum(series[i - n + 1 : i + 1]) / n, 2)
+            return out
 
-        # ── 2. Download via yfinance directly (no MIN_ROWS restriction) ────────
-        try:
-            raw: pd.DataFrame = yf.download(
-                tickers=t,
-                period=period,
-                interval=interval,
-                auto_adjust=True,
-                progress=False,
-            )
-        except Exception as exc:
-            raise RuntimeError(f"[{t}] yfinance download failed: {exc}") from exc
+        def rsi_series(series, period=14):
+            out = [None] * len(series)
+            for i in range(period, len(series)):
+                gains, losses = 0.0, 0.0
+                for j in range(i - period + 1, i + 1):
+                    ch = series[j] - series[j - 1]
+                    if ch > 0:
+                        gains += ch
+                    else:
+                        losses -= ch
+                avg_gain = gains / period
+                avg_loss = losses / period
+                if avg_loss == 0:
+                    out[i] = 100.0
+                else:
+                    rs = avg_gain / avg_loss
+                    out[i] = round(100 - (100 / (1 + rs)), 2)
+            return out
 
-        if raw is None or raw.empty:
-            raise ValueError(
-                f"[{t}] No data returned by Yahoo Finance. "
-                "Verify the ticker symbol and try a longer period."
-            )
+        sma20 = sma(closes, 20)
+        sma50 = sma(closes, 50)
+        sma200 = sma(closes, 200) if len(closes) >= 200 else [None] * len(closes)
+        rsi = rsi_series(closes, 14)
 
-        # Flatten MultiIndex columns produced by yfinance ≥ 0.2.50
-        if isinstance(raw.columns, pd.MultiIndex):
-            raw.columns = raw.columns.get_level_values(0)
-        raw.columns = [str(c).strip().lower() for c in raw.columns]
-
-        required = ["open", "high", "low", "close", "volume"]
-        missing = set(required) - set(raw.columns)
-        if missing:
-            raise ValueError(f"[{t}] Missing columns: {sorted(missing)}")
-
-        df = raw[required].dropna().sort_index()
-        n = len(df)
-        if n < 2:
-            raise ValueError(f"[{t}] Too few rows ({n}) to build a chart.")
-
-        # ── 3. Inline indicator helpers ────────────────────────────────────────
-        closes = df["close"].to_numpy(dtype=float)
-        highs  = df["high"].to_numpy(dtype=float)
-        lows   = df["low"].to_numpy(dtype=float)
-
-        def _sma(arr: np.ndarray, p: int) -> float:
-            return float(arr[-p:].mean()) if len(arr) >= p else float(arr.mean())
-
-        def _ema(arr: np.ndarray, p: int) -> float:
-            s = pd.Series(arr)
-            return float(s.ewm(span=p, adjust=False).mean().iloc[-1])
-
-        def _rsi(arr: np.ndarray, p: int = 14) -> float:
-            if len(arr) < p + 1:
-                return 50.0
-            delta = np.diff(arr)
-            gain = np.where(delta > 0, delta, 0.0)
-            loss = np.where(delta < 0, -delta, 0.0)
-            avg_gain = gain[-p:].mean()
-            avg_loss = loss[-p:].mean()
-            if avg_loss == 0:
-                return 100.0
-            rs = avg_gain / avg_loss
-            return float(100.0 - (100.0 / (1.0 + rs)))
-
-        def _atr(h: np.ndarray, l: np.ndarray, c: np.ndarray, p: int = 14) -> float:
-            if len(c) < p + 1:
-                return float((h - l).mean())
-            tr = np.maximum(
-                h[1:] - l[1:],
-                np.maximum(np.abs(h[1:] - c[:-1]), np.abs(l[1:] - c[:-1]))
-            )
-            return float(tr[-p:].mean())
-
-        price     = float(closes[-1])
-        sma20     = _sma(closes, 20)
-        sma50     = _sma(closes, 50)
-        sma200    = _sma(closes, 200)
-        ema20     = _ema(closes, 20)
-        ema50     = _ema(closes, 50)
-        rsi_val   = _rsi(closes)
-        atr_val   = _atr(highs, lows, closes)
-
-        returns   = np.diff(closes) / np.where(closes[:-1] != 0, closes[:-1], 1.0)
-        vol_win   = min(20, len(returns))
-        volatility = float(returns[-vol_win:].std() * math.sqrt(252)) if vol_win >= 2 else 0.0
-
-        mom_win   = min(20, n - 1)
-        momentum_20d = float((closes[-1] - closes[-(mom_win + 1)]) / closes[-(mom_win + 1)]) if mom_win > 0 else 0.0
-
-        trend_strength = float(
-            (1 if closes[-1] > sma50 else -1) +
-            (0.5 if sma50 > sma200 else -0.5)
-        )
-
-        # ── 4. Regime ──────────────────────────────────────────────────────────
-        if closes[-1] > sma50 > sma200 and trend_strength > 0:
-            regime_str = "BULL"
-        elif closes[-1] < sma50 < sma200 and trend_strength < 0:
-            regime_str = "BEAR"
-        else:
-            regime_str = "NEUTRAL"
-
-        # ── 5. Build candles list ──────────────────────────────────────────────
-        chart_df = df.tail(limit)
-        candles: list[dict] = []
-        for idx, row in chart_df.iterrows():
-            ts = idx
-            try:
-                ts = ts.tz_convert("UTC")
-            except Exception:
-                pass
-            candles.append(
-                {
-                    "t": ts.isoformat().replace("+00:00", "Z"),
-                    "o": float(row["open"]),
-                    "h": float(row["high"]),
-                    "l": float(row["low"]),
-                    "c": float(row["close"]),
-                    "v": float(row["volume"]),
-                }
-            )
-
-        last_ts = df.index[-1]
-        try:
-            last_ts = last_ts.tz_convert("UTC")
-        except Exception:
-            pass
-        ts_iso = pd.Timestamp(last_ts).strftime("%Y-%m-%dT%H:%M:%SZ")
-
+        candles = []
+        for i in range(len(dates)):
+            candles.append({
+                "date": dates[i],
+                "open": round(float(opens[i]), 2),
+                "high": round(float(highs[i]), 2),
+                "low": round(float(lows[i]), 2),
+                "close": round(float(closes[i]), 2),
+                "volume": int(volumes[i]) if volumes[i] == volumes[i] else 0,
+                "sma20": sma20[i],
+                "sma50": sma50[i],
+                "sma200": sma200[i],
+                "rsi": rsi[i],
+            })
         return {
-            "ticker": t,
+            "status": "success",
+            "ticker": sym,
+            "candles": candles,
             "period": period,
             "interval": interval,
-            "timestamp": ts_iso,
-            "candles": candles,
-            "indicators": {
-                "price": price,
-                "rsi": rsi_val,
-                "atr": atr_val,
-                "sma20": sma20,
-                "sma50": sma50,
-                "sma200": sma200,
-                "ema20": ema20,
-                "ema50": ema50,
-                "volatility": volatility,
-                "momentum_20d": momentum_20d,
-                "trend_strength": trend_strength,
-            },
-            "regime": regime_str,
         }
 
-    try:
-        result = await loop.run_in_executor(None, _work)
-    except (ValueError, RuntimeError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return result
+    return await loop.run_in_executor(None, _run)
 
 
-# ── SPA catch-all: serve React index.html for non-API routes ──────────────
-@app.get("/{full_path:path}")
-async def spa_fallback(full_path: str):
-    """Catch-all route to support React SPA client-side routing.
-    Also serves static assets from the frontend dist folder (e.g. vite.svg).
-    """
-    # First check if the path maps to a real file in frontend/dist
-    if full_path:
-        candidate = (_FRONTEND_DIR / full_path).resolve()
-        # Prevent path traversal
-        if str(candidate).startswith(str(_FRONTEND_DIR.resolve())) and candidate.is_file():
-            from fastapi.responses import FileResponse
-            return FileResponse(str(candidate))
-
-    # Otherwise serve the SPA index.html
-    frontend_index = _FRONTEND_DIR / "index.html"
-    if frontend_index.is_file():
-        return HTMLResponse(content=frontend_index.read_text(encoding="utf-8"))
-    raise HTTPException(status_code=404, detail="Not found")
+@app.get("/api/signals/nifty50")
+async def nifty50_signals(
+    limit: int = 50,
+    include_news: bool = True,
+    max_news: int = 2,
+    news_days: int = 1,
+):
+    loop = asyncio.get_event_loop()
+    fn = partial(
+        get_nifty50_signal_board,
+        limit,
+        include_news,
+        max_news,
+        news_days,
+    )
+    return await loop.run_in_executor(None, fn)
