@@ -118,18 +118,21 @@ async def chat(req: ChatRequest):
     )
 
     # Map agent names to pipeline step indices
+    # Active agents: root_agent (trading_assistant) delegates to these sub-agents
     _AGENT_STEP_MAP = {
-        "QuantToolAgent": 0,
-        "QuantAgent": 1,
-        "SentimentAgent": 2,
-        "BullAgent": 3,
-        "BearAgent": 4,
-        "CIOAgent": 5,
-        "RiskToolAgent": 6,
+        "regime_analyst": 0,
+        "stock_scanner": 1,
+        "dividend_scanner": 2,
+        "trade_debate_judge": 3,
+        "bull_advocate": 3,      # sub-agent of debate, maps to same step
+        "bear_advocate": 3,      # sub-agent of debate, maps to same step
+        "trade_executor": 4,
+        "portfolio_manager": 5,
+        "trading_assistant": 6,  # root agent's own tool calls (autonomous flow)
     }
     _STEP_NAMES = [
-        "Quant Engine", "Quant Agent", "Sentiment Agent",
-        "Bull Agent", "Bear Agent", "CIO Agent", "Risk Engine",
+        "Regime Analyst", "Stock Scanner", "Dividend Scanner",
+        "Debate (Bull vs Bear)", "Trade Executor", "Portfolio Manager", "Autonomous Flow",
     ]
 
     reply_parts: list[str] = []

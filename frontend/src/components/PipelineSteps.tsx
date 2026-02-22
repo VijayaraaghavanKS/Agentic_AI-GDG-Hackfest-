@@ -3,13 +3,13 @@ import { cn } from "@/lib/utils";
 import { CheckCircle2, Loader2, AlertTriangle, Clock, ChevronDown, ChevronUp, Workflow } from "lucide-react";
 
 const PIPELINE_STEPS = [
-  { name: "Quant Engine", icon: "calculate" },
-  { name: "Quant Agent", icon: "analytics" },
-  { name: "Sentiment Agent", icon: "psychology" },
-  { name: "Bull Agent", icon: "trending_up" },
-  { name: "Bear Agent", icon: "trending_down" },
-  { name: "CIO Agent", icon: "gavel" },
-  { name: "Risk Engine", icon: "shield" },
+  { name: "Regime Analyst", icon: "analytics" },
+  { name: "Stock Scanner", icon: "search" },
+  { name: "Dividend Scanner", icon: "payments" },
+  { name: "Debate (Bull vs Bear)", icon: "gavel" },
+  { name: "Trade Executor", icon: "trending_up" },
+  { name: "Portfolio Manager", icon: "account_balance" },
+  { name: "Autonomous Flow", icon: "smart_toy" },
 ];
 
 export interface StepData {

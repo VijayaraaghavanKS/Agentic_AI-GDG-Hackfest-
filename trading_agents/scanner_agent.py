@@ -49,10 +49,10 @@ def scan_watchlist_breakouts(watchlist: str = "") -> Dict:
         scanned.append(sym)
         result = detect_breakout(
             symbol=data["symbol"],
-            closes=data["closes"],
-            volumes=data["volumes"],
-            highs=data["highs"],
-            lows=data["lows"],
+            closes=[c for c in data["closes"] if c is not None],
+            volumes=[v for v in data["volumes"] if v is not None],
+            highs=[h for h in data["highs"] if h is not None],
+            lows=[l for l in data["lows"] if l is not None],
         )
         if result.get("status") == "success" and result.get("is_breakout"):
             candidates.append(result)
@@ -122,8 +122,8 @@ def scan_announcement_momentum(watchlist: str = "") -> Dict:
             continue
 
         scanned.append(sym)
-        closes = data["closes"]
-        volumes = data["volumes"]
+        closes = [c for c in data["closes"] if c is not None]
+        volumes = [v for v in data["volumes"] if v is not None]
 
         if len(closes) < 6 or len(volumes) < 21:
             continue
@@ -206,9 +206,10 @@ def scan_oversold_bounce(
             continue
 
         scanned.append(sym)
-        closes = data["closes"]
-        highs = data["highs"]
-        lows = data["lows"]
+        closes, highs, lows, _ = _sanitize_price_data(
+            data["closes"], data["highs"], data["lows"],
+            data.get("volumes", data["closes"]),  # volumes not used here, just align
+        )
 
         if len(closes) < 60:
             continue
@@ -264,6 +265,24 @@ def _round_price(value: float | None) -> float | None:
     return round(max(0.01, float(value)), 2)
 
 
+def _sanitize_price_data(
+    closes: List, highs: List, lows: List, volumes: List
+) -> tuple:
+    """Remove rows where any value is None/NaN and return clean aligned lists."""
+    clean_c, clean_h, clean_l, clean_v = [], [], [], []
+    for c, h, l, v in zip(closes, highs, lows, volumes):
+        if c is None or h is None or l is None or v is None:
+            continue
+        try:
+            clean_c.append(float(c))
+            clean_h.append(float(h))
+            clean_l.append(float(l))
+            clean_v.append(float(v))
+        except (TypeError, ValueError):
+            continue
+    return clean_c, clean_h, clean_l, clean_v
+
+
 def _signal_row_for_symbol(symbol: str, regime: str) -> Dict:
     try:
         data = fetch_stock_data(symbol=symbol)
@@ -280,24 +299,41 @@ def _signal_row_for_symbol(symbol: str, regime: str) -> Dict:
             "error_message": data.get("error_message", "price fetch failed"),
         }
 
-    closes = data["closes"]
-    highs = data["highs"]
-    lows = data["lows"]
-    volumes = data["volumes"]
-
-    close = float(closes[-1])
-    atr = float(compute_atr(highs, lows, closes))
-    rsi = compute_rsi(closes, period=14)
-    dma_50 = sum(closes[-50:]) / 50 if len(closes) >= 50 else close
-    breakout_result = detect_breakout(
-        symbol=data["symbol"],
-        closes=closes,
-        volumes=volumes,
-        highs=highs,
-        lows=lows,
+    # Sanitize: drop rows where any OHLCV value is None
+    closes, highs, lows, volumes = _sanitize_price_data(
+        data.get("closes", []),
+        data.get("highs", []),
+        data.get("lows", []),
+        data.get("volumes", []),
     )
-    is_breakout = bool(breakout_result.get("is_breakout")) if breakout_result.get("status") == "success" else False
-    volume_ratio = float(breakout_result.get("volume_ratio", 0.0)) if breakout_result.get("status") == "success" else None
+
+    if len(closes) < 15:
+        return {
+            "status": "error",
+            "symbol": symbol,
+            "error_message": f"Insufficient clean data for {symbol}: only {len(closes)} rows after removing nulls.",
+        }
+
+    try:
+        close = float(closes[-1])
+        atr = float(compute_atr(highs, lows, closes))
+        rsi = compute_rsi(closes, period=14)
+        dma_50 = sum(closes[-50:]) / 50 if len(closes) >= 50 else close
+        breakout_result = detect_breakout(
+            symbol=data["symbol"],
+            closes=closes,
+            volumes=volumes,
+            highs=highs,
+            lows=lows,
+        )
+        is_breakout = bool(breakout_result.get("is_breakout")) if breakout_result.get("status") == "success" else False
+        volume_ratio = float(breakout_result.get("volume_ratio", 0.0)) if breakout_result.get("status") == "success" else None
+    except Exception as exc:
+        return {
+            "status": "error",
+            "symbol": symbol,
+            "error_message": f"Technical computation error for {symbol}: {exc}",
+        }
 
     signal = "HOLD"
     entry: float | None = None

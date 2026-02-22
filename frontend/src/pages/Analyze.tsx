@@ -74,11 +74,12 @@ function extractRiskDetails(text: string) {
 
 function parsePipelineSteps(text: string, backendSteps?: StepData[] | null): StepData[] {
   const names = [
-    "Quant Engine", "Quant Agent", "Sentiment Agent",
-    "Bull Agent", "Bear Agent", "CIO Agent", "Risk Engine",
+    "Regime Analyst", "Stock Scanner", "Dividend Scanner",
+    "Debate (Bull vs Bear)", "Trade Executor", "Portfolio Manager", "Autonomous Flow",
   ];
 
-  if (Array.isArray(backendSteps) && backendSteps.length === 7) {
+  // Prefer backend-provided step data (structured from server)
+  if (Array.isArray(backendSteps) && backendSteps.length >= names.length) {
     return backendSteps.map((step) => ({
       status: step.status || "pending",
       summary: step.summary || null,
@@ -87,34 +88,32 @@ function parsePipelineSteps(text: string, backendSteps?: StepData[] | null): Ste
     }));
   }
 
+  // Fallback: parse agent output patterns from the reply text
   return names.map((name) => {
     const patterns: Record<string, RegExp> = {
-      "Quant Engine": /QUANT_SNAPSHOT_GENERATED|Ticker:.*\nRegime:/i,
-      "Quant Agent": /QUANT_ANALYSIS|Overall Quant View/i,
-      "Sentiment Agent": /SENTIMENT_SUMMARY|Company Sentiment|Macro Environment/i,
-      "Bull Agent": /BULL_THESIS|Quant Strengths|Why Bulls Could Be Right/i,
-      "Bear Agent": /BEAR_THESIS|Quant Weaknesses|Why Bears Could Be Right/i,
-      "CIO Agent": /CIO_DECISION|Action:\s*(?:BUY|SELL|HOLD)/i,
-      "Risk Engine": /REGIME-AWARE TRADING DECISION|FINAL_TRADE|Status:\s*(?:ACCEPTED|REJECTED)/i,
+      "Regime Analyst": /regime[:\s]*(BULL|BEAR|SIDEWAYS)|market regime|regime_suitability/i,
+      "Stock Scanner": /scan_watchlist|breakout.*candidate|oversold.*bounce|stocks_scanned|signal_counts/i,
+      "Dividend Scanner": /dividend|yield|ex.?date/i,
+      "Debate (Bull vs Bear)": /bull.*advocate|bear.*advocate|bull.*case|bear.*case|debate|conviction/i,
+      "Trade Executor": /entry.*price|stop.*loss|target|risk.?reward|paper.*trade|trade.*plan/i,
+      "Portfolio Manager": /portfolio|holdings|cash|unrealized|positions/i,
+      "Autonomous Flow": /autonomous|trading.*loop|scan.*execute|auto.*trade/i,
     };
     const matched = patterns[name]?.test(text);
-    const isFlagged = name === "Risk Engine" && /REJECTED|killed.*true/i.test(text);
+    const isFlagged = name === "Trade Executor" && /REJECTED|SKIPPED|killed/i.test(text);
 
     let summary: string | null = null;
     if (matched) {
-      if (name === "Quant Engine") {
-        const regime = text.match(/Regime:\s*(\w+)/i);
-        const price = text.match(/Price:\s*([\d,.]+)/i);
-        summary = regime && price ? `${regime[1]} regime, Price ${price[1]}` : "Snapshot generated";
-      } else if (name === "CIO Agent") {
-        const a = text.match(/Action:\s*(\w+)/i);
-        summary = a ? `Decision: ${a[1]}` : "Decision made";
-      } else if (name === "Risk Engine") {
+      if (name === "Regime Analyst") {
+        const regime = text.match(/regime[:\s]*(BULL|BEAR|SIDEWAYS)/i);
+        summary = regime ? `Market regime: ${regime[1]}` : "Regime analyzed";
+      } else if (name === "Trade Executor") {
         if (isFlagged) {
           const reason = text.match(/(?:Reason|Kill Reason):\s*([^\n]+)/i);
-          summary = reason ? `REJECTED: ${reason[1].slice(0, 60)}` : "Trade rejected";
+          summary = reason ? `REJECTED: ${reason[1].slice(0, 60)}` : "Trade rejected/skipped";
         } else {
-          summary = "Trade accepted";
+          const action = text.match(/(?:Decision|Action|Signal):\s*(\w+)/i);
+          summary = action ? `Decision: ${action[1]}` : "Trade evaluated";
         }
       } else {
         summary = "Complete";
@@ -152,17 +151,29 @@ function parseBullBear(text: string, backendSteps?: StepData[] | null) {
 
   let bullText = "";
   let bearText = "";
-  if (Array.isArray(backendSteps) && backendSteps.length === 7) {
-    bullText = backendSteps[3]?.output || "";
-    bearText = backendSteps[4]?.output || "";
+
+  // Debate output is at step index 3 (contains both bull and bear advocate output)
+  if (Array.isArray(backendSteps) && backendSteps.length >= 4) {
+    const debateOutput = backendSteps[3]?.output || "";
+    // Try to split debate output into bull / bear sections
+    const bullSplit = debateOutput.match(/(?:bull|bullish|buy)[_ ]?(?:case|thesis|advocate)?[:\s]*([\s\S]*?)(?=(?:bear|bearish|sell)[_ ]?(?:case|thesis|advocate)|$)/i);
+    const bearSplit = debateOutput.match(/(?:bear|bearish|sell)[_ ]?(?:case|thesis|advocate)?[:\s]*([\s\S]*?)$/i);
+    bullText = bullSplit?.[1] || "";
+    bearText = bearSplit?.[1] || "";
+    // If only one section found, use the whole debate output for both
+    if (!bullText && !bearText && debateOutput) {
+      bullText = debateOutput;
+      bearText = debateOutput;
+    }
   }
 
+  // Fallback: parse from full reply text
   if (!bullText) {
-    const bullMatch = text.match(/(?:BULL_THESIS|bull[_ ]?case)[:\s]*([\s\S]*?)(?=BEAR_THESIS|bear[_ ]?(?:thesis|case)|CIO_DECISION|$)/i);
+    const bullMatch = text.match(/(?:BULL_THESIS|bull[_ ]?(?:case|advocate|thesis))[:\s]*([\s\S]*?)(?=BEAR_THESIS|bear[_ ]?(?:thesis|case|advocate)|CIO_DECISION|$)/i);
     bullText = bullMatch?.[1] || "";
   }
   if (!bearText) {
-    const bearMatch = text.match(/(?:BEAR_THESIS|bear[_ ]?case)[:\s]*([\s\S]*?)(?=CIO_DECISION|CIO Agent|FINAL|REGIME|$)/i);
+    const bearMatch = text.match(/(?:BEAR_THESIS|bear[_ ]?(?:case|advocate|thesis))[:\s]*([\s\S]*?)(?=CIO_DECISION|CIO Agent|FINAL|REGIME|Trade Executor|$)/i);
     bearText = bearMatch?.[1] || "";
   }
 

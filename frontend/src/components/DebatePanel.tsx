@@ -14,13 +14,13 @@ interface DebatePanelProps {
 }
 
 const STEP_LABELS: Record<number, string> = {
-  0: "Quant Engine",
-  1: "Quant Agent",
-  2: "Sentiment Agent",
-  3: "Bull Agent",
-  4: "Bear Agent",
-  5: "CIO Agent",
-  6: "Risk Engine",
+  0: "Regime Analyst",
+  1: "Stock Scanner",
+  2: "Dividend Scanner",
+  3: "Debate (Bull vs Bear)",
+  4: "Trade Executor",
+  5: "Portfolio Manager",
+  6: "Autonomous Flow",
 };
 
 function ThesisPanel({
@@ -127,7 +127,7 @@ export function DebatePanel({ bull, bear, selectedStepIndex }: DebatePanelProps)
             type="bear"
             points={bear?.points || []}
             conviction={bear?.conviction || 0}
-            highlighted={selectedStepIndex === 4}
+            highlighted={selectedStepIndex === 3}
           />
         </div>
       </CardContent>

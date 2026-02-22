@@ -37,7 +37,7 @@ def analyze_and_recommend_strategy() -> Dict:
     
     # Step 2: Get portfolio state
     portfolio = get_portfolio_summary()
-    cash = portfolio.get("cash_inr", 0)
+    cash = portfolio.get("cash", 0)
     open_positions = portfolio.get("open_positions", [])
     num_positions = len(open_positions)
     max_positions = 3  # From config
@@ -124,7 +124,7 @@ def scan_opportunities_for_regime() -> Dict:
     
     # Get portfolio to check capacity
     portfolio = get_portfolio_summary()
-    cash = portfolio.get("cash_inr", 0)
+    cash = portfolio.get("cash", 0)
     open_positions = len(portfolio.get("open_positions", []))
     can_trade = open_positions < 3 and cash > 10000
     
@@ -176,8 +176,8 @@ def scan_opportunities_for_regime() -> Dict:
         }
     else:
         # RSI oversold scan
-        scan = scan_oversold_bounce(min_rsi=None, max_rsi=35)
-        if scan.get("status") != "success" or not scan.get("oversold_stocks"):
+        scan = scan_oversold_bounce(rsi_max=35)
+        if scan.get("status") != "success" or not scan.get("candidates"):
             # Try getting best historical performers
             best = get_best_oversold_nifty50(years=2, min_win_rate_pct=50, min_trades=3)
             if best.get("status") == "success" and best.get("best_stocks"):
@@ -200,7 +200,7 @@ def scan_opportunities_for_regime() -> Dict:
             }
         
         candidates = []
-        for stock in scan.get("oversold_stocks", [])[:5]:
+        for stock in scan.get("candidates", [])[:5]:
             entry = stock.get("close")
             stop = stock.get("suggested_stop")
             risk = entry - stop if entry and stop else 0
@@ -221,7 +221,7 @@ def scan_opportunities_for_regime() -> Dict:
             "step": "2_SCAN_COMPLETE",
             "regime": regime,
             "strategy": "RSI_OVERSOLD_BOUNCE",
-            "total_found": len(scan.get("oversold_stocks", [])),
+            "total_found": len(scan.get("candidates", [])),
             "top_candidates": candidates,
             "selection_criteria": "RSI <= 35, below 50-DMA, with 0.8*ATR stop-loss",
             "next_step": "Review candidates above. Say 'trade [SYMBOL]' to execute, or 'trade top' for the best one.",
@@ -246,7 +246,7 @@ def prepare_trade_for_execution(symbol: str) -> Dict:
     """
     from trading_agents.tools.paper_trading import calculate_trade_plan_from_entry_stop
     from trading_agents.tools.market_data import fetch_stock_data
-    from trading_agents.tools.technical import compute_stock_metrics
+    from trading_agents.tools.technical import compute_atr
     
     # Normalize symbol
     if not symbol.upper().endswith('.NS') and not symbol.startswith('^'):
@@ -267,8 +267,9 @@ def prepare_trade_for_execution(symbol: str) -> Dict:
     close = closes[-1]
     
     # Get technical metrics
-    metrics = compute_stock_metrics(closes, highs, lows)
-    atr = metrics.get("atr", close * 0.02)  # Default 2% if no ATR
+    atr = compute_atr(highs, lows, closes) if highs and lows else close * 0.02
+    if atr <= 0:
+        atr = close * 0.02  # Default 2% if no ATR
     
     # Calculate stop (0.6 * ATR for RSI strategy)
     stop = round(close - 0.6 * atr, 2)
@@ -279,20 +280,21 @@ def prepare_trade_for_execution(symbol: str) -> Dict:
     if plan.get("status") != "success":
         return plan
     
+    plan_data = plan.get("plan", {})
     return {
         "status": "success",
         "step": "3_TRADE_PLAN_READY",
         "trade_plan": {
             "symbol": symbol,
             "action": "BUY",
-            "entry_price": plan.get("entry"),
-            "stop_loss": plan.get("stop"),
-            "target_price": plan.get("target"),
-            "quantity": plan.get("qty"),
-            "capital_required_inr": plan.get("capital_required_inr"),
-            "risk_amount_inr": plan.get("risk_inr"),
-            "risk_reward_ratio": plan.get("rr_ratio"),
-            "risk_pct_of_capital": plan.get("risk_pct"),
+            "entry_price": plan_data.get("entry"),
+            "stop_loss": plan_data.get("stop"),
+            "target_price": plan_data.get("target"),
+            "quantity": plan_data.get("qty"),
+            "capital_required_inr": plan_data.get("capital_required"),
+            "risk_amount_inr": plan_data.get("risk_amount"),
+            "risk_reward_ratio": plan_data.get("rr"),
+            "risk_pct_of_capital": None,
         },
         "confirmation_required": True,
         "instruction": f"Trade plan ready for {symbol}. Say 'execute' or 'confirm' to place the paper trade, or 'cancel' to abort.",
@@ -320,8 +322,8 @@ def execute_confirmed_trade(symbol: str, entry: float, stop: float, target: floa
     # Execute the trade
     result = execute_paper_trade(symbol=symbol, entry=entry, stop=stop, target=target, qty=qty)
     
-    if result.get("status") != "success":
-        return result
+    if result.get("status") == "SKIPPED":
+        return {"status": "error", "message": result.get("reason", "Trade skipped"), "details": result}
     
     # Get updated portfolio
     portfolio = get_portfolio_summary()
@@ -336,12 +338,12 @@ def execute_confirmed_trade(symbol: str, entry: float, stop: float, target: floa
             "stop": result.get("stop"),
             "target": result.get("target"),
             "qty": result.get("qty"),
-            "invested_inr": result.get("invested_inr"),
+            "invested_inr": round(result.get("qty", 0) * result.get("entry", 0), 2),
         },
         "portfolio_after": {
-            "cash_remaining_inr": portfolio.get("cash_inr"),
+            "cash_remaining_inr": portfolio.get("cash", 0),
             "open_positions": len(portfolio.get("open_positions", [])),
-            "total_invested_inr": portfolio.get("total_invested_inr"),
+            "total_invested_inr": portfolio.get("total_invested", 0),
         },
         "next_steps": [
             "Position is now OPEN and will be tracked",
@@ -362,7 +364,7 @@ def check_trading_loop_status() -> Dict:
         dict with can_continue flag and current portfolio state.
     """
     portfolio = get_portfolio_summary()
-    cash = portfolio.get("cash_inr", 0)
+    cash = portfolio.get("cash", 0)
     open_positions = portfolio.get("open_positions", [])
     num_positions = len(open_positions)
     

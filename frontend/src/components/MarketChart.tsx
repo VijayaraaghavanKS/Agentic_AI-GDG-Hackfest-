@@ -332,7 +332,7 @@ function LineChartView({ data, volMax }: { data: Candle[] & { isUp?: boolean }[]
           <ComposedChart data={data} margin={{ top: 4, right: 12, left: 12, bottom: 4 }}>
             <Bar dataKey="volume" fill="transparent" barSize={Math.max(2, 400 / data.length)} radius={0}>
               {data.map((entry, i) => (
-                <Cell key={i} fill={entry.isUp ? "hsl(142, 76%, 36% / 0.35)" : "hsl(0, 84%, 60% / 0.35)"} />
+                <Cell key={i} fill={(entry as { isUp?: boolean }).isUp ? "hsl(142, 76%, 36% / 0.35)" : "hsl(0, 84%, 60% / 0.35)"} />
               ))}
             </Bar>
             <YAxis hide domain={[0, volMax * 1.1]} />

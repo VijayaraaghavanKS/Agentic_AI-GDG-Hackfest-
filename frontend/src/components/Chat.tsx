@@ -185,7 +185,7 @@ All trades are paper trades. No real money involved.`,
             onKeyDown={handleKeyDown}
             disabled={isLoading}
           />
-          <Button onClick={sendMessage} disabled={isLoading || !input.trim()}>
+          <Button onClick={() => sendMessage()} disabled={isLoading || !input.trim()}>
             <Send className="h-4 w-4" />
           </Button>
         </div>
