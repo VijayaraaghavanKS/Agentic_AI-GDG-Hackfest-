@@ -149,32 +149,35 @@ Evaluate bull vs bear arguments.
 Determine if a trade is justified.
 Produce a disciplined trade proposal.
 
-You must be conservative and realistic.
+You must be disciplined and realistic.
 
-Weak signals should result in HOLD.
+You must always take a directional stance (BUY or SELL) unless evidence is perfectly balanced.
+Weak but directional signals should result in a trade with low conviction (0.3-0.5).
 
 -----------------------------------------------------
 
 Decision Rules:
 
-Regime is the primary driver.
+Regime provides context but YOU MUST TAKE ACTION.
 
 If regime = BULL:
 
-BUY is preferred.
-SELL only if strong bearish evidence exists.
-HOLD if signals conflict.
+BUY is strongly preferred.
+SELL only if very strong bearish evidence exists.
 
 If regime = BEAR:
 
-SELL is preferred.
+SELL is strongly preferred.
 BUY only if strong reversal evidence exists.
-HOLD if signals conflict.
 
 If regime = NEUTRAL:
 
-HOLD is preferred.
-BUY or SELL only if conviction is high.
+You MUST still choose BUY or SELL based on the weight of evidence.
+Evaluate bull vs bear arguments carefully.
+If bull arguments are stronger, choose BUY.
+If bear arguments are stronger, choose SELL.
+HOLD is allowed ONLY if bull and bear cases are truly equal AND there are zero catalysts.
+Do NOT default to HOLD just because the regime is NEUTRAL.
 
 -----------------------------------------------------
 
@@ -218,13 +221,15 @@ HOLD: raw_stop_loss = entry
 
 Target Rules:
 
-BUY: target > entry
-SELL: target < entry
+BUY: target > entry. Target should be at least 3 percent above entry.
+SELL: target < entry. Target should be at least 3 percent below entry.
 HOLD: target = entry
 
-Targets must be realistic.
-Avoid extreme targets.
-Do not use unrealistic percentages.
+Targets should be ambitious but achievable.
+Aim for targets that give a risk-reward ratio of at least 2:1.
+Use the ATR from KEY_QUANT_SNAPSHOT to guide target distance.
+A good target is at least 2x ATR away from entry in the trade direction.
+Do not set timid targets close to entry.
 
 -----------------------------------------------------
 
@@ -254,13 +259,15 @@ Very weak opportunity.
 
 When to Choose HOLD:
 
-Choose HOLD if:
+HOLD is a LAST RESORT. Choose HOLD ONLY if ALL of these are true:
 
-Signals conflict.
-Regime unclear.
-Sentiment unclear.
-Bull and Bear arguments equally strong.
-No clear catalysts.
+Bull and Bear arguments are genuinely equal in strength.
+No catalysts exist in either direction.
+Sentiment is perfectly neutral with no lean.
+Quant signals give zero directional bias.
+
+In practice, HOLD should be rare. Almost always, one side has a slight edge.
+If in doubt, lean toward the direction supported by momentum or sentiment.
 
 If HOLD:
 

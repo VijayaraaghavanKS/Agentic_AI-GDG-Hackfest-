@@ -56,10 +56,19 @@ _REQUIRED_FIELDS: tuple[str, ...] = (
 # ──────────────────────────────────────────────────────────────
 
 _REGIME_ALLOWED_ACTIONS: dict[str, frozenset[str]] = {
+    "BULL":    frozenset({"BUY", "SELL"}),
+    "BEAR":    frozenset({"BUY", "SELL"}),
+    "NEUTRAL": frozenset({"BUY", "SELL"}),
+}
+
+# Position size penalty for trades that go against the regime direction
+_REGIME_ALIGNED_ACTIONS: dict[str, frozenset[str]] = {
     "BULL":    frozenset({"BUY"}),
     "BEAR":    frozenset({"SELL"}),
     "NEUTRAL": frozenset({"BUY", "SELL"}),
 }
+# Contrarian trades get 50% position size
+_CONTRARIAN_SIZE_FACTOR: float = 0.5
 
 # ──────────────────────────────────────────────────────────────
 # Validated Trade Dataclass
@@ -270,6 +279,13 @@ def apply_risk_limits(
 
     # ── Step 5: Position Size ────────────────────────────────
     position_size: int = int(max_risk / risk_per_share)
+
+    # Apply contrarian penalty — halve position if trading against regime
+    is_contrarian = action not in _REGIME_ALIGNED_ACTIONS.get(regime, set())
+    if is_contrarian:
+        position_size = int(position_size * _CONTRARIAN_SIZE_FACTOR)
+        logger.info("[%s] Contrarian trade (action=%s regime=%s) — size halved to %d",
+                    ticker, action, regime, position_size)
 
     logger.info("[%s] Position=%d MaxRisk=%.2f",
                 ticker, position_size, max_risk)
