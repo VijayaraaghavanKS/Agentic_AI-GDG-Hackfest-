@@ -120,20 +120,72 @@ def get_market_regime() -> Dict:
     Returns:
         dict with regime classification and supporting metrics.
     """
-    from trading_agents.regime_agent import analyze_regime
+    from tools.market_data import fetch_index_data
+    from agents import regime_agent
+    import pandas as pd
 
-    return analyze_regime()
+    # Fetch Nifty 50 data
+    data = fetch_index_data(symbol="^NSEI")
+    if data.get("status") != "success":
+        return {"status": "error", "error": data.get("error_message", "Failed to fetch index data")}
+
+    # Build candles DataFrame
+    n = len(data.get("closes", []))
+    candles = pd.DataFrame({
+        "open": data.get("closes", [])[-n:],  # Approximate
+        "high": data.get("highs", [])[-n:],
+        "low": data.get("lows", [])[-n:],
+        "close": data.get("closes", [])[-n:],
+        "volume": data.get("volumes", [])[-n:],
+    })
+
+    # Analyze regime
+    result = regime_agent.analyze(candles)
+    regime = result["regime"]
+
+    return {
+        "status": "success",
+        "regime": regime.trend,
+        "volatility": regime.volatility,
+        "dma_50": regime.dma_50,
+        "dma_200": regime.dma_200,
+        "latest_close": data.get("latest_close", 0),
+        "strategy": "Consider breakout strategies" if regime.trend == "bull" else (
+            "Consider defensive or no-trade" if regime.trend == "bear" else "Consider mean reversion"
+        ),
+        "reasoning": f"Market is {regime.trend.upper()} with {regime.volatility} volatility. "
+                     f"50DMA: {regime.dma_50:.0f}, 200DMA: {regime.dma_200:.0f}",
+    }
 
 
 def get_portfolio_status() -> Dict:
     """Get current paper portfolio status including positions and P&L.
 
     Returns:
-        dict with cash, positions, realized PnL, and trade history.
+        dict with memory stats and recent trades.
     """
-    from trading_agents.tools.portfolio import get_portfolio_summary
+    from memory.trade_memory import TradeMemory
 
-    return get_portfolio_summary()
+    memory = TradeMemory()
+    trades = memory._trades
+
+    # Calculate stats
+    open_trades = [t for t in trades if t.get("outcome") == "open"]
+    closed_trades = [t for t in trades if t.get("outcome") in ("win", "loss", "scratch")]
+    wins = sum(1 for t in closed_trades if t.get("outcome") == "win")
+    losses = sum(1 for t in closed_trades if t.get("outcome") == "loss")
+
+    return {
+        "status": "success",
+        "total_trades": len(trades),
+        "open_trades": len(open_trades),
+        "closed_trades": len(closed_trades),
+        "wins": wins,
+        "losses": losses,
+        "win_rate": wins / len(closed_trades) if closed_trades else 0.0,
+        "recent_trades": trades[-5:] if trades else [],
+        "note": "This is paper trading only. No real money is at risk.",
+    }
 
 
 # ── Root Agent ────────────────────────────────────────────────────────────────

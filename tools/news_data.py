@@ -76,5 +76,6 @@ def fetch_stock_news(symbol: str) -> Dict:
         "symbol": symbol,
         "article_count": len(recent_articles),
         "articles": recent_articles,
+        "headlines": [a.get("title", "") for a in recent_articles],
         "fetched_at_ist": now_ist.strftime("%Y-%m-%d %H:%M:%S IST"),
     }

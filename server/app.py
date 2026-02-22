@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import sys
 from functools import partial
@@ -21,31 +20,21 @@ _project_root = str(Path(__file__).resolve().parent.parent)
 _root_env = Path(_project_root) / ".env"
 load_dotenv(_root_env)
 
-# Also try trading_agents/.env as fallback
-_ta_env = Path(_project_root) / "trading_agents" / ".env"
-if _ta_env.exists():
-    load_dotenv(_ta_env, override=False)
-
 # Ensure Vertex AI env var is set for ADK
 os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "true")
 
-# Ensure project root is on sys.path so trading_agents is importable
+# Ensure project root is on sys.path
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from google.adk.agents import Agent
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 
-from trading_agents.agent import root_agent
-from trading_agents.scanner_agent import get_nifty50_signal_board
-from trading_agents.tools.portfolio import (
-    get_portfolio_performance,
-    get_portfolio_summary,
-    refresh_portfolio_positions,
-    reset_portfolio,
-)
-from trading_agents.regime_agent import analyze_regime
+# Import unified pipeline agent
+from agents.agent import root_agent, get_market_regime, get_portfolio_status
+from agents.pipeline import run_pipeline
+from config import WATCH_LIST
+from memory.trade_memory import TradeMemory
 from scheduler import (
     run_single_scan,
     start_auto_scan,
@@ -54,7 +43,7 @@ from scheduler import (
     get_scan_log,
 )
 
-app = FastAPI(title="Agentic Trading Assistant", version="1.0.0")
+app = FastAPI(title="Agentic Trading Assistant", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -123,8 +112,9 @@ async def chat(req: ChatRequest):
 
 @app.get("/api/regime")
 async def regime():
+    """Get current market regime from unified pipeline."""
     loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(None, analyze_regime)
+    result = await loop.run_in_executor(None, get_market_regime)
     return result
 
 
@@ -132,51 +122,82 @@ async def regime():
 
 @app.get("/api/portfolio")
 async def portfolio():
-    return get_portfolio_summary()
+    """Get current paper portfolio status."""
+    return get_portfolio_status()
 
 
 @app.get("/api/portfolio/performance")
 async def portfolio_performance():
-    return get_portfolio_performance()
-
-
-@app.post("/api/portfolio/refresh")
-async def portfolio_refresh():
-    return refresh_portfolio_positions()
+    """Get portfolio memory and win/loss stats."""
+    return get_portfolio_status()
 
 
 @app.post("/api/portfolio/reset")
 async def portfolio_reset():
-    return reset_portfolio()
+    """Reset paper portfolio (clear all memory)."""
+    try:
+        memory_path = Path(__file__).parent.parent / "memory"
+        (memory_path / "trade_memory.json").write_text("[]")
+        (memory_path / "portfolio.json").write_text("{}")
+        return {"status": "success", "message": "Portfolio and trade memory reset"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
-# ── Nifty 50 Signal Board ───────────────────────────────────────────────────
+# ── Pipeline Analysis Endpoints ───────────────────────────────────────────────
+
+class AnalysisRequest(BaseModel):
+    ticker: str = "RELIANCE.NS"
+    portfolio_value: float = 10000.0
+
+
+@app.post("/api/analyze")
+async def analyze_ticker(req: AnalysisRequest):
+    """Run full 8-step pipeline analysis on a ticker."""
+    loop = asyncio.get_event_loop()
+    fn = partial(run_pipeline, ticker=req.ticker, portfolio_value=req.portfolio_value)
+    result = await loop.run_in_executor(None, fn)
+    return result
+
 
 @app.get("/api/signals/nifty50")
-async def nifty50_signals(
-    limit: int = 50,
-    include_news: bool = True,
-    max_news: int = 2,
-    news_days: int = 1,
-):
+async def nifty50_signals(limit: int = 10):
+    """Scan top Nifty50 stocks with unified pipeline."""
     loop = asyncio.get_event_loop()
-    fn = partial(
-        get_nifty50_signal_board,
-        limit,
-        include_news,
-        max_news,
-        news_days,
-    )
-    return await loop.run_in_executor(None, fn)
+
+    def scan_all():
+        results = []
+        for ticker in WATCH_LIST[:limit]:
+            try:
+                r = run_pipeline(ticker=ticker, portfolio_value=100000)
+                if r.get("status") == "success":
+                    results.append({
+                        "ticker": ticker,
+                        "regime": r.get("scenario", {}).get("regime", {}).get("trend", "?"),
+                        "sentiment": r.get("scenario", {}).get("sentiment", {}).get("bucket", "?"),
+                        "scenario": r.get("scenario", {}).get("label", "?"),
+                        "strategy": r.get("strategy_selected", "?"),
+                        "score": max(
+                            (s.get("composite_score", 0) for s in r.get("backtest_scores", [])),
+                            default=0
+                        ),
+                        "trade_status": r.get("trade_status", "?"),
+                    })
+            except Exception as e:
+                results.append({"ticker": ticker, "error": str(e)})
+        return {"status": "success", "signals": results}
+
+    return await loop.run_in_executor(None, scan_all)
 
 
 # ── Scanner / Auto-Scan Endpoints ────────────────────────────────────────────
 
 @app.post("/api/scan")
-async def manual_scan():
+async def manual_scan(ticker: str = "RELIANCE.NS"):
     """Run a single scan-and-trade cycle (manual trigger)."""
     loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(None, run_single_scan)
+    fn = partial(run_single_scan, ticker)
+    result = await loop.run_in_executor(None, fn)
     return result
 
 

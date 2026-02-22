@@ -178,8 +178,8 @@ def run_pipeline(
         _pipeline_instance = TradingPipeline()
 
     # Fetch live data
-    from trading_agents.tools.market_data import fetch_stock_data
-    from trading_agents.tools.news_data import fetch_stock_news
+    from tools.market_data import fetch_stock_data
+    from tools.news_data import fetch_stock_news
 
     # Fetch candles
     data = fetch_stock_data(symbol=ticker)

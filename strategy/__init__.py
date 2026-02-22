@@ -17,6 +17,12 @@ from .strategies import (
     ALL_STRATEGIES,
 )
 
+from .scenario_builder import build_scenario
+from .backtester import backtest_strategy
+
+# Alias for compatibility
+quick_backtest = backtest_strategy
+
 __all__ = [
     "BaseStrategy",
     "BreakoutStrategy",
@@ -24,4 +30,7 @@ __all__ = [
     "MomentumStrategy",
     "NoTradeStrategy",
     "ALL_STRATEGIES",
+    "build_scenario",
+    "backtest_strategy",
+    "quick_backtest",
 ]

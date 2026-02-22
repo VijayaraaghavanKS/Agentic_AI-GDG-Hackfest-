@@ -9,7 +9,7 @@ from typing import Dict
 
 import yfinance as yf
 
-from trading_agents.config import DATA_LOOKBACK_DAYS
+from config import DATA_LOOKBACK_DAYS
 
 
 def fetch_index_data(symbol: str = "^NSEI", days: int = DATA_LOOKBACK_DAYS) -> Dict:

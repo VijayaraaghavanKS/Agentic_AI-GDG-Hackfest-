@@ -1,3 +1,0 @@
-"""
-orchestrator/ – Pipeline execution package.
-"""

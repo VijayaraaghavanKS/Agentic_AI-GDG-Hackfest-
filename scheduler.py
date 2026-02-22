@@ -22,9 +22,9 @@ from typing import Optional
 import pandas as pd
 
 from agents.pipeline import TradingPipeline
-from trading_agents.tools.market_data import fetch_stock_data
-from trading_agents.tools.news_data import fetch_stock_news
-from trading_agents.config import NSE_WATCHLIST
+from tools.market_data import fetch_stock_data
+from tools.news_data import fetch_stock_news
+from config import WATCH_LIST
 
 logger = logging.getLogger(__name__)
 
@@ -146,9 +146,9 @@ def run_watchlist_scan() -> dict:
     dict
         Scan summary with per-ticker results.
     """
-    _log_event("WATCHLIST_SCAN", f"Scanning {len(NSE_WATCHLIST)} stocks")
+    _log_event("WATCHLIST_SCAN", f"Scanning {len(WATCH_LIST)} stocks")
     results = {}
-    for sym in NSE_WATCHLIST[:10]:  # limit to 10 for speed
+    for sym in WATCH_LIST[:10]:  # limit to 10 for speed
         try:
             r = run_single_scan(sym)
             results[sym] = {
