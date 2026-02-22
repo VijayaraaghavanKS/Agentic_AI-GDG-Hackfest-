@@ -11,8 +11,9 @@ _env_path = Path(__file__).parent / ".env"
 if _env_path.exists():
     load_dotenv(_env_path)
 
+# Model IDs for Vertex AI and Google AI Studio (gemini-3-flash-preview is first for Vertex)
 GEMINI_FALLBACK_MODELS = [
-    "gemini-3-flash-preview",
+    "gemini-3-flash-preview",  # Vertex AI: Gemini 3 Flash Preview (preferred)
     "gemini-2.5-flash",
     "gemini-2.0-flash",
     "gemini-2.5-pro",
@@ -33,6 +34,10 @@ def create_genai_client() -> genai.Client:
     if use_vertex:
         project = os.environ.get("GOOGLE_CLOUD_PROJECT")
         location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
+        # Gemini 3 Preview models (e.g. gemini-3-flash-preview) are only on global endpoint
+        vertex_model = os.environ.get("VERTEXAI_GEMINI_MODEL", "").strip()
+        if vertex_model and "gemini-3" in vertex_model and "preview" in vertex_model:
+            location = "global"
         if not project:
             raise ValueError(
                 "GOOGLE_GENAI_USE_VERTEXAI is TRUE but GOOGLE_CLOUD_PROJECT is not set."
@@ -99,6 +104,17 @@ def call_gemini_with_fallback(client: genai.Client, contents, config=None):
     raise last_exc  # type: ignore[misc]
 
 
+def _get_models_to_try() -> list[str]:
+    """Return model list to try; when using Vertex AI, prefer VERTEXAI_GEMINI_MODEL if set."""
+    use_vertex = os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").upper() in ("TRUE", "1", "YES")
+    vertex_model = os.environ.get("VERTEXAI_GEMINI_MODEL", "").strip()
+    if use_vertex and vertex_model:
+        # Prefer explicitly set Vertex model first (e.g. gemini-3-flash-preview)
+        rest = [m for m in GEMINI_FALLBACK_MODELS if m != vertex_model]
+        return [vertex_model] + rest
+    return list(GEMINI_FALLBACK_MODELS)
+
+
 def _pick_available_model() -> str:
     """Probe each model; return the first that responds. Retries 503 errors."""
     try:
@@ -107,7 +123,8 @@ def _pick_available_model() -> str:
         print(f"[config] WARNING: {exc} -- defaulting to first model")
         return GEMINI_FALLBACK_MODELS[0]
 
-    for model in GEMINI_FALLBACK_MODELS:
+    models_to_try = _get_models_to_try()
+    for model in models_to_try:
         for attempt in range(_503_RETRY_ATTEMPTS):
             try:
                 client.models.generate_content(model=model, contents="ping")
@@ -124,8 +141,8 @@ def _pick_available_model() -> str:
                     print(f"[config] {model} unavailable ({status}), trying next...")
                     break  # non-503, skip to next model
 
-    print(f"[config] WARNING: all models failed, defaulting to {GEMINI_FALLBACK_MODELS[0]}")
-    return GEMINI_FALLBACK_MODELS[0]
+    print(f"[config] WARNING: all models failed, defaulting to {models_to_try[0]}")
+    return models_to_try[0]
 
 
 GEMINI_MODEL = _pick_available_model()
