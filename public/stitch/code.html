@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Trading Command Center Dashboard</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "primary": "#135bec",
+              "primary-dark": "#0d43b3",
+              "background-light": "#f6f6f8",
+              "background-dark": "#0B0E11", 
+              "surface-dark": "#15191E",
+              "border-dark": "#27272a",
+              "success": "#22c55e",
+              "danger": "#ef4444",
+              "warning": "#f59e0b",
+            },
+            fontFamily: {
+              "display": ["Inter", "sans-serif"],
+              "mono": ["JetBrains Mono", "monospace"],
+            },
+            boxShadow: {
+              'glow': '0 0 15px rgba(19, 91, 236, 0.5)',
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0B0E11; /* Fallback */
+        }
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .stamp-rotate {
+            transform: rotate(-12deg);
+        }
+        /* Custom scrollbar for dark theme */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #15191E; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569; 
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-200 min-h-screen flex flex-col overflow-hidden">
+<!-- Header -->
+<header class="h-16 border-b border-border-dark bg-surface-dark px-6 flex items-center justify-between shrink-0 z-20">
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-3">
+<div class="size-8 bg-primary/20 rounded flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-xl">candlestick_chart</span>
+</div>
+<h1 class="text-white text-lg font-bold tracking-tight">Regime-Aware Command Center</h1>
+</div>
+<div class="h-6 w-px bg-border-dark mx-2"></div>
+<!-- Ticker Search -->
+<div class="relative group">
+<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500 group-focus-within:text-primary transition-colors">
+<span class="material-symbols-outlined text-[20px]">search</span>
+</div>
+<input class="bg-[#0B0E11] border border-border-dark text-white text-sm rounded-md block w-64 pl-10 p-2 focus:ring-1 focus:ring-primary focus:border-primary placeholder-slate-600 font-mono transition-all" placeholder="Search Ticker (e.g. RELIANCE.NS)" type="text" value="RELIANCE.NS"/>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<!-- Status Indicators -->
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-2 px-3 py-1.5 bg-[#0B0E11] rounded border border-border-dark">
+<span class="material-symbols-outlined text-slate-400 text-[18px]">show_chart</span>
+<span class="text-xs text-slate-400 font-medium">REGIME:</span>
+<span class="text-xs text-slate-200 font-bold tracking-wide">NEUTRAL</span>
+</div>
+<div class="flex items-center gap-2 px-3 py-1.5 bg-[#0B0E11] rounded border border-border-dark">
+<span class="material-symbols-outlined text-slate-400 text-[18px]">sync</span>
+<span class="text-xs text-slate-400 font-medium">SYNC:</span>
+<span class="text-xs text-success font-mono">12s AGO</span>
+</div>
+</div>
+<!-- Main CTA -->
+<button class="flex items-center gap-2 px-5 py-2 bg-primary hover:bg-primary-dark text-white text-sm font-semibold rounded shadow-glow transition-all duration-300 group">
+<span class="material-symbols-outlined text-[20px] group-hover:animate-pulse">play_arrow</span>
+                Run Analysis
+            </button>
+<!-- User Avatar -->
+<div class="size-9 rounded-full bg-slate-700 bg-cover bg-center border border-slate-600" data-alt="User profile picture" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDhcJQx5fjyeN4SVVRObnfNPDWppmQn-ei4fR2su5ZBD7gQk4LVmZLKFdHaV672CNRXPWCI2qx7_0z41xcJZcs0EO43RMRxuETEmY-r7YEZhuWQqSFtC-nubyMipLpnvFxofuK0M0vhQhD7sx8dEG6S97T07W1Eh6MoMxPNtN8QgMLX33socy3UudJly1Y6YfBWh0dUs8Xh_lbntdbrzZtxqCCiCEsrxLYZxjYK-PcV06BTcrWOrdPqHYRIZ3AXkjm7LW-y6y87m370');"></div>
+</div>
+</header>
+<!-- Main Content -->
+<main class="flex-1 flex overflow-hidden p-4 gap-4">
+<!-- Left Column (60%) -->
+<div class="flex flex-col gap-4 w-[60%] h-full overflow-hidden">
+<!-- Decision Card -->
+<div class="bg-surface-dark border border-border-dark rounded-lg p-6 relative overflow-hidden shrink-0">
+<!-- Watermark Background -->
+<div class="absolute right-0 top-0 opacity-[0.03] pointer-events-none">
+<span class="material-symbols-outlined text-[300px]">gavel</span>
+</div>
+<div class="flex justify-between items-start relative z-10">
+<div>
+<div class="flex items-center gap-3 mb-1">
+<h2 class="text-3xl font-bold text-white tracking-tight">RELIANCE.NS</h2>
+<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">NSE</span>
+</div>
+<p class="text-slate-400 text-sm mb-6">Reliance Industries Ltd.</p>
+<div class="grid grid-cols-4 gap-8">
+<div>
+<p class="text-xs text-slate-500 uppercase font-semibold mb-1">Action</p>
+<p class="text-xl font-mono font-bold text-slate-400">HOLD</p>
+</div>
+<div>
+<p class="text-xs text-slate-500 uppercase font-semibold mb-1">Entry Zone</p>
+<p class="text-xl font-mono text-slate-600">--</p>
+</div>
+<div>
+<p class="text-xs text-slate-500 uppercase font-semibold mb-1">Stop Loss</p>
+<p class="text-xl font-mono text-slate-600">--</p>
+</div>
+<div>
+<p class="text-xs text-slate-500 uppercase font-semibold mb-1">Take Profit</p>
+<p class="text-xl font-mono text-slate-600">--</p>
+</div>
+</div>
+</div>
+<!-- Stamp -->
+<div class="border-[3px] border-danger/40 text-danger/80 rounded px-4 py-2 stamp-rotate flex flex-col items-center justify-center select-none backdrop-blur-sm bg-danger/5 shadow-lg">
+<span class="text-2xl font-black tracking-widest uppercase" style="font-family: 'Stencil', 'Impact', sans-serif;">REJECTED</span>
+<span class="text-[10px] font-mono font-bold uppercase tracking-wide mt-1">Reason: Low R:R Ratio</span>
+</div>
+</div>
+</div>
+<!-- Market Data Chart -->
+<div class="bg-surface-dark border border-border-dark rounded-lg flex-1 flex flex-col overflow-hidden min-h-[400px]">
+<!-- Chart Header -->
+<div class="flex items-center justify-between px-4 py-3 border-b border-border-dark bg-[#0B0E11]/50">
+<div class="flex items-center gap-4">
+<span class="text-sm font-semibold text-slate-300">Market Data</span>
+<div class="flex items-center gap-1">
+<span class="px-2 py-0.5 rounded text-xs font-mono bg-primary/10 text-primary border border-primary/20 cursor-pointer hover:bg-primary/20">1D</span>
+<span class="px-2 py-0.5 rounded text-xs font-mono text-slate-500 hover:text-slate-300 cursor-pointer hover:bg-slate-800">1W</span>
+<span class="px-2 py-0.5 rounded text-xs font-mono text-slate-500 hover:text-slate-300 cursor-pointer hover:bg-slate-800">1M</span>
+</div>
+</div>
+<div class="flex items-center gap-3 text-xs font-mono">
+<div class="flex items-center gap-1.5">
+<div class="size-2 rounded-full bg-yellow-500"></div>
+<span class="text-slate-400">SMA 20</span>
+</div>
+<div class="flex items-center gap-1.5">
+<div class="size-2 rounded-full bg-blue-500"></div>
+<span class="text-slate-400">SMA 50</span>
+</div>
+<div class="flex items-center gap-1.5">
+<div class="size-2 rounded-full bg-purple-500"></div>
+<span class="text-slate-400">SMA 200</span>
+</div>
+</div>
+</div>
+<!-- Chart Container (Visual Representation) -->
+<div class="flex-1 relative bg-[#0B0E11] p-4">
+<!-- Price Overlay -->
+<div class="absolute top-4 left-4 z-10 flex flex-col">
+<span class="text-3xl font-mono font-bold text-white">2,456.00</span>
+<span class="text-sm font-mono text-danger flex items-center gap-1">
+                            -1.2% <span class="material-symbols-outlined text-[14px]">arrow_downward</span>
+</span>
+</div>
+<!-- SVG Chart -->
+<svg class="w-full h-full" preserveaspectratio="none" viewbox="0 0 800 400">
+<!-- Grid Lines -->
+<line stroke="#1f2937" stroke-dasharray="4 4" stroke-width="1" x1="0" x2="800" y1="100" y2="100"></line>
+<line stroke="#1f2937" stroke-dasharray="4 4" stroke-width="1" x1="0" x2="800" y1="200" y2="200"></line>
+<line stroke="#1f2937" stroke-dasharray="4 4" stroke-width="1" x1="0" x2="800" y1="300" y2="300"></line>
+<!-- Candles (Abstract) -->
+<defs>
+<lineargradient id="volume-gradient" x1="0" x2="0" y1="0" y2="1">
+<stop offset="0%" stop-color="#3b82f6" stop-opacity="0.5"></stop>
+<stop offset="100%" stop-color="#3b82f6" stop-opacity="0.1"></stop>
+</lineargradient>
+</defs>
+<!-- Random Candles -->
+<g class="candles" stroke-width="1">
+<!-- Generating a few mock candles -->
+<!-- Green Candle -->
+<line stroke="#22c55e" x1="50" x2="50" y1="280" y2="220"></line>
+<rect fill="#22c55e" height="30" width="10" x="45" y="240"></rect>
+<!-- Red Candle -->
+<line stroke="#ef4444" x1="100" x2="100" y1="230" y2="290"></line>
+<rect fill="#ef4444" height="40" width="10" x="95" y="240"></rect>
+<!-- Green Candle -->
+<line stroke="#22c55e" x1="150" x2="150" y1="290" y2="200"></line>
+<rect fill="#22c55e" height="60" width="10" x="145" y="220"></rect>
+<!-- Doji -->
+<line stroke="#94a3b8" x1="200" x2="200" y1="210" y2="260"></line>
+<line stroke="#94a3b8" stroke-width="2" x1="195" x2="205" y1="235" y2="235"></line>
+<!-- Red Trend -->
+<line stroke="#ef4444" x1="250" x2="250" y1="235" y2="280"></line>
+<rect fill="#ef4444" height="35" width="10" x="245" y="235"></rect>
+<line stroke="#ef4444" x1="300" x2="300" y1="270" y2="310"></line>
+<rect fill="#ef4444" height="30" width="10" x="295" y="270"></rect>
+<!-- Reversal -->
+<line stroke="#22c55e" x1="350" x2="350" y1="320" y2="280"></line>
+<rect fill="#22c55e" height="15" width="10" x="345" y="300"></rect>
+<!-- SMA Lines -->
+<path d="M0 250 Q 200 240, 400 280 T 800 260" fill="none" opacity="0.8" stroke="#eab308" stroke-width="2"></path> <!-- SMA 20 -->
+<path d="M0 220 Q 200 210, 400 250 T 800 240" fill="none" opacity="0.6" stroke="#3b82f6" stroke-width="2"></path> <!-- SMA 50 -->
+<!-- More Candles filler right side -->
+<line stroke="#22c55e" x1="400" x2="400" y1="280" y2="250"></line>
+<rect fill="#22c55e" height="20" width="10" x="395" y="260"></rect>
+<line stroke="#ef4444" x1="450" x2="450" y1="260" y2="300"></line>
+<rect fill="#ef4444" height="30" width="10" x="445" y="260"></rect>
+<line stroke="#ef4444" x1="500" x2="500" y1="300" y2="330"></line>
+<rect fill="#ef4444" height="25" width="10" x="495" y="300"></rect>
+<line stroke="#22c55e" x1="550" x2="550" y1="330" y2="310"></line>
+<rect fill="#22c55e" height="10" width="10" x="545" y="320"></rect>
+<line stroke="#22c55e" x1="600" x2="600" y1="310" y2="290"></line>
+<rect fill="#22c55e" height="10" width="10" x="595" y="300"></rect>
+<line stroke="#22c55e" x1="650" x2="650" y1="300" y2="250"></line>
+<rect fill="#22c55e" height="40" width="10" x="645" y="260"></rect>
+<line stroke="#22c55e" x1="700" x2="700" y1="250" y2="240"></line>
+<rect fill="#22c55e" height="10" width="10" x="695" y="240"></rect>
+<line stroke="#ef4444" x1="750" x2="750" y1="240" y2="260"></line>
+<rect fill="#ef4444" height="15" width="10" x="745" y="240"></rect>
+</g>
+<!-- Volume Bars at bottom -->
+<g class="volume" opacity="0.3">
+<rect fill="#3b82f6" height="50" width="10" x="45" y="350"></rect>
+<rect fill="#3b82f6" height="40" width="10" x="95" y="360"></rect>
+<rect fill="#3b82f6" height="60" width="10" x="145" y="340"></rect>
+<rect fill="#3b82f6" height="30" width="10" x="195" y="370"></rect>
+<rect fill="#3b82f6" height="45" width="10" x="245" y="355"></rect>
+<rect fill="#3b82f6" height="35" width="10" x="295" y="365"></rect>
+<rect fill="#3b82f6" height="20" width="10" x="345" y="380"></rect>
+<rect fill="#3b82f6" height="40" width="10" x="395" y="360"></rect>
+<rect fill="#3b82f6" height="50" width="10" x="445" y="350"></rect>
+<rect fill="#3b82f6" height="60" width="10" x="495" y="340"></rect>
+<rect fill="#3b82f6" height="20" width="10" x="545" y="380"></rect>
+<rect fill="#3b82f6" height="30" width="10" x="595" y="370"></rect>
+<rect fill="#3b82f6" height="70" width="10" x="645" y="330"></rect>
+<rect fill="#3b82f6" height="40" width="10" x="695" y="360"></rect>
+<rect fill="#3b82f6" height="25" width="10" x="745" y="375"></rect>
+</g>
+</svg>
+</div>
+</div>
+</div>
+<!-- Right Column (40%) -->
+<div class="flex flex-col gap-4 w-[40%] h-full overflow-hidden">
+<!-- AI Pipeline Execution -->
+<div class="bg-surface-dark border border-border-dark rounded-lg flex flex-col overflow-hidden max-h-[60%]">
+<div class="px-5 py-4 border-b border-border-dark flex justify-between items-center bg-[#0B0E11]/50">
+<h3 class="text-white font-semibold">AI Pipeline Execution</h3>
+<span class="text-xs text-slate-500 font-mono">ID: #X92-8821</span>
+</div>
+<div class="flex-1 overflow-y-auto p-2 space-y-1">
+<!-- Step 1 -->
+<div class="flex items-center gap-3 p-3 rounded-md bg-[#0B0E11]/50 border border-border-dark/50">
+<div class="size-6 rounded-full bg-success/20 text-success flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[16px]">check</span>
+</div>
+<div class="flex-1">
+<div class="flex justify-between">
+<span class="text-sm font-medium text-slate-200">Quant Engine</span>
+<span class="text-xs text-slate-500 font-mono">120ms</span>
+</div>
+<p class="text-xs text-slate-500 mt-0.5">Data normalized &amp; cleaned.</p>
+</div>
+</div>
+<!-- Step 2 -->
+<div class="flex items-center gap-3 p-3 rounded-md bg-[#0B0E11]/50 border border-border-dark/50">
+<div class="size-6 rounded-full bg-success/20 text-success flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[16px]">check</span>
+</div>
+<div class="flex-1">
+<div class="flex justify-between">
+<span class="text-sm font-medium text-slate-200">Quant Agent</span>
+<span class="text-xs text-slate-500 font-mono">45ms</span>
+</div>
+<p class="text-xs text-slate-500 mt-0.5">Statistical arb opportunity found.</p>
+</div>
+</div>
+<!-- Step 3 -->
+<div class="flex items-center gap-3 p-3 rounded-md bg-[#0B0E11]/50 border border-border-dark/50">
+<div class="size-6 rounded-full bg-success/20 text-success flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[16px]">check</span>
+</div>
+<div class="flex-1">
+<div class="flex justify-between">
+<span class="text-sm font-medium text-slate-200">Sentiment Agent</span>
+<span class="text-xs text-slate-500 font-mono">310ms</span>
+</div>
+<p class="text-xs text-slate-500 mt-0.5">News sentiment neutral-positive.</p>
+</div>
+</div>
+<!-- Step 4 -->
+<div class="flex items-center gap-3 p-3 rounded-md bg-[#0B0E11]/50 border border-border-dark/50">
+<div class="size-6 rounded-full bg-success/20 text-success flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[16px]">check</span>
+</div>
+<div class="flex-1">
+<div class="flex justify-between">
+<span class="text-sm font-medium text-slate-200">Bull Agent</span>
+<span class="text-xs text-slate-500 font-mono">890ms</span>
+</div>
+<p class="text-xs text-slate-500 mt-0.5">Strong momentum indicators.</p>
+</div>
+</div>
+<!-- Step 5 -->
+<div class="flex items-center gap-3 p-3 rounded-md bg-[#0B0E11]/50 border border-border-dark/50">
+<div class="size-6 rounded-full bg-success/20 text-success flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[16px]">check</span>
+</div>
+<div class="flex-1">
+<div class="flex justify-between">
+<span class="text-sm font-medium text-slate-200">Bear Agent</span>
+<span class="text-xs text-slate-500 font-mono">920ms</span>
+</div>
+<p class="text-xs text-slate-500 mt-0.5">Overbought conditions detected.</p>
+</div>
+</div>
+<!-- Step 6 -->
+<div class="flex items-center gap-3 p-3 rounded-md bg-[#0B0E11]/50 border border-border-dark/50">
+<div class="size-6 rounded-full bg-success/20 text-success flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[16px]">check</span>
+</div>
+<div class="flex-1">
+<div class="flex justify-between">
+<span class="text-sm font-medium text-slate-200">CIO Agent</span>
+<span class="text-xs text-slate-500 font-mono">55ms</span>
+</div>
+<p class="text-xs text-slate-500 mt-0.5">Weighing conflicting signals.</p>
+</div>
+</div>
+<!-- Step 7 -->
+<div class="flex items-center gap-3 p-3 rounded-md bg-danger/10 border border-danger/30">
+<div class="size-6 rounded-full bg-danger/20 text-danger flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[16px]">priority_high</span>
+</div>
+<div class="flex-1">
+<div class="flex justify-between">
+<span class="text-sm font-medium text-slate-200">Risk Engine</span>
+<span class="text-xs text-danger font-mono font-bold">FLAGGED</span>
+</div>
+<p class="text-xs text-slate-400 mt-0.5">R:R below threshold (1:1.5).</p>
+</div>
+</div>
+</div>
+</div>
+<!-- AI Investment Debate -->
+<div class="bg-surface-dark border border-border-dark rounded-lg flex-1 flex flex-col overflow-hidden">
+<div class="px-5 py-3 border-b border-border-dark flex justify-between items-center bg-[#0B0E11]/50">
+<h3 class="text-white font-semibold flex items-center gap-2">
+<span class="material-symbols-outlined text-slate-400 text-sm">psychology</span>
+                        AI Investment Debate
+                    </h3>
+</div>
+<div class="grid grid-cols-2 h-full divide-x divide-border-dark">
+<!-- Bull Thesis -->
+<div class="p-4 flex flex-col gap-3">
+<div class="flex items-center justify-between mb-2">
+<span class="text-sm font-bold text-success flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">trending_up</span> Bull Case
+                            </span>
+<span class="text-xs font-mono bg-success/10 text-success px-2 py-0.5 rounded border border-success/20">0.6</span>
+</div>
+<!-- Conviction Bar -->
+<div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-1">
+<div class="bg-success h-full" style="width: 60%"></div>
+</div>
+<ul class="space-y-3">
+<li class="flex items-start gap-2">
+<span class="mt-1 size-1.5 rounded-full bg-success shrink-0"></span>
+<p class="text-xs text-slate-400 leading-relaxed">Strong recent momentum with moving average crossover.</p>
+</li>
+<li class="flex items-start gap-2">
+<span class="mt-1 size-1.5 rounded-full bg-success shrink-0"></span>
+<p class="text-xs text-slate-400 leading-relaxed">Positive earnings surprise in last quarter (EPS +12%).</p>
+</li>
+<li class="flex items-start gap-2">
+<span class="mt-1 size-1.5 rounded-full bg-success shrink-0"></span>
+<p class="text-xs text-slate-400 leading-relaxed">Sector rotation favoring industrials.</p>
+</li>
+</ul>
+</div>
+<!-- Bear Thesis -->
+<div class="p-4 flex flex-col gap-3 bg-red-900/5">
+<div class="flex items-center justify-between mb-2">
+<span class="text-sm font-bold text-danger flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">trending_down</span> Bear Case
+                            </span>
+<span class="text-xs font-mono bg-danger/10 text-danger px-2 py-0.5 rounded border border-danger/20">0.7</span>
+</div>
+<!-- Conviction Bar -->
+<div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-1">
+<div class="bg-danger h-full" style="width: 70%"></div>
+</div>
+<ul class="space-y-3">
+<li class="flex items-start gap-2">
+<span class="mt-1 size-1.5 rounded-full bg-danger shrink-0"></span>
+<p class="text-xs text-slate-400 leading-relaxed">RSI Divergence on the 4H timeframe suggests exhaustion.</p>
+</li>
+<li class="flex items-start gap-2">
+<span class="mt-1 size-1.5 rounded-full bg-danger shrink-0"></span>
+<p class="text-xs text-slate-400 leading-relaxed">Macro headwinds from rising crude oil prices.</p>
+</li>
+<li class="flex items-start gap-2">
+<span class="mt-1 size-1.5 rounded-full bg-danger shrink-0"></span>
+<p class="text-xs text-slate-400 leading-relaxed">Approaching major resistance zone at 2480.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

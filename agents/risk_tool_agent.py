@@ -89,18 +89,26 @@ YOUR ONLY JOB:
      "atr": <quant atr as float>
    }
 
-4. Return EXACTLY this structured format and NOTHING else:
+4. Return EXACTLY this pretty decision card format and NOTHING else:
 
-FINAL_TRADE:
+REGIME-AWARE TRADING DECISION
+================================
 
-Ticker:        <ticker>
-Action:        <action>
-Position Size: <position_size>
-Stop Loss:     <stop_loss>
-Target:        <target_price>
-Risk Reward:   <risk_reward_ratio>
-Killed:        <True/False>
-Kill Reason:   <kill_reason or N/A>
+Ticker: <ticker>
+Regime: <regime>
+
+Decision: <action>
+
+Entry: <entry_price>
+Stop: <stop_loss>
+Target: <target_price>
+
+Risk Reward: <risk_reward_ratio>
+
+Status: <ACCEPTED or REJECTED>
+
+Reason:
+<kill_reason or 'Trade accepted'>
 
 RULES — STRICT:
 • You MUST call risk_enforcement_tool. Do NOT write Python code.
