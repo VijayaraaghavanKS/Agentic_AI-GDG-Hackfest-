@@ -1,12 +1,10 @@
 const API_BASE = "";
 
-export async function runAnalysis(ticker) {
-  // Normalise ticker: add .NS suffix for NSE stocks if missing
+export async function runAnalysis(ticker: string) {
   let t = ticker.trim().toUpperCase();
   if (!t.startsWith("^") && !t.includes(".")) t = `${t}.NS`;
 
   const controller = new AbortController();
-  // Allow up to 5 minutes for the full agent pipeline
   const timeoutId = setTimeout(() => controller.abort(), 300_000);
 
   try {
@@ -19,7 +17,7 @@ export async function runAnalysis(ticker) {
     if (!res.ok) throw new Error(`API error: ${res.status}`);
     return res.json();
   } catch (err) {
-    if (err.name === "AbortError") {
+    if (err instanceof Error && err.name === "AbortError") {
       throw new Error("Analysis timed out (>5 min). Try again.");
     }
     throw err;
@@ -40,7 +38,17 @@ export async function fetchPortfolio() {
   return res.json();
 }
 
-export async function fetchMarket({ ticker, period = "6mo", interval = "1d", limit = 180 }) {
+export async function fetchMarket({
+  ticker,
+  period = "6mo",
+  interval = "1d",
+  limit = 180,
+}: {
+  ticker: string;
+  period?: string;
+  interval?: string;
+  limit?: number;
+}) {
   const url = new URL(`${API_BASE}/api/market`, window.location.origin);
   url.searchParams.set("ticker", ticker);
   url.searchParams.set("period", period);
@@ -54,7 +62,11 @@ export async function fetchMarket({ ticker, period = "6mo", interval = "1d", lim
       const body = await res.json();
       detail = body?.detail || body?.message || JSON.stringify(body);
     } catch {
-      try { detail = await res.text(); } catch { /* ignore */ }
+      try {
+        detail = await res.text();
+      } catch {
+        /* ignore */
+      }
     }
     throw new Error(detail);
   }

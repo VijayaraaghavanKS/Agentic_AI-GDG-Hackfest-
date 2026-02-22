@@ -1,6 +1,6 @@
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Moon, Sun, TrendingUp, BarChart3, LayoutDashboard } from "lucide-react";
+import { Moon, Sun, TrendingUp, BarChart3, LayoutDashboard, FlaskConical } from "lucide-react";
 import { useState, useEffect } from "react";
 
 export function Layout() {
@@ -56,6 +56,16 @@ export function Layout() {
                 >
                   <BarChart3 className="h-4 w-4" />
                   Market
+                </Button>
+              </Link>
+              <Link to="/analyze">
+                <Button
+                  variant={location.pathname === "/analyze" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="gap-1.5"
+                >
+                  <FlaskConical className="h-4 w-4" />
+                  Analyze
                 </Button>
               </Link>
             </nav>
