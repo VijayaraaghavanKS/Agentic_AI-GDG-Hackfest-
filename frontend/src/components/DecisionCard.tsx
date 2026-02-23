@@ -56,7 +56,7 @@ export function DecisionCard({ trade }: { trade: TradeData | null }) {
 
   if (!trade) {
     return (
-      <Card className="relative overflow-hidden">
+      <Card className="relative overflow-hidden h-full">
         <CardContent className="py-8">
           <div className="flex items-center gap-3 mb-4">
             <Gavel className="h-6 w-6 text-muted-foreground" />
@@ -94,9 +94,9 @@ export function DecisionCard({ trade }: { trade: TradeData | null }) {
   };
 
   return (
-    <Card className="relative overflow-hidden">
+    <Card className="relative overflow-hidden h-full">
       <CardContent className="pt-6">
-        <div className="flex justify-between items-start">
+        <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
           <div className="space-y-4 flex-1">
             {/* Ticker + Direction Badge */}
             <div className="flex items-center gap-3 flex-wrap">
@@ -132,7 +132,7 @@ export function DecisionCard({ trade }: { trade: TradeData | null }) {
             </p>
 
             {/* Metrics Grid */}
-            <div className="grid grid-cols-4 gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6">
               <div>
                 <p className="text-xs text-muted-foreground uppercase font-semibold mb-1">Decision</p>
                 <p className={cn(
@@ -157,7 +157,7 @@ export function DecisionCard({ trade }: { trade: TradeData | null }) {
             </div>
 
             {/* Risk Reward */}
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-4 sm:gap-6 flex-wrap">
               <div>
                 <p className="text-xs text-muted-foreground uppercase font-semibold mb-1">Risk Reward</p>
                 <p className="text-lg font-mono font-bold">{riskReward ?? "—"}</p>
@@ -224,7 +224,7 @@ export function DecisionCard({ trade }: { trade: TradeData | null }) {
           {/* Stamp */}
           <div
             className={cn(
-              "border-[3px] rounded px-4 py-2 -rotate-12 flex flex-col items-center justify-center select-none shrink-0 ml-4",
+              "border-[3px] rounded px-3 py-1.5 sm:px-4 sm:py-2 -rotate-12 flex flex-col items-center justify-center select-none shrink-0 self-center sm:self-start",
               isRejected
                 ? "border-red-500/40 text-red-500/80 bg-red-500/5"
                 : "border-green-500/40 text-green-500/80 bg-green-500/5"

@@ -152,8 +152,8 @@ export function SignalBoard() {
             </div>
 
             {/* Table - fixed layout so columns don't overlap */}
-            <ScrollArea className="h-[400px] w-full">
-              <Table className="table-fixed w-full">
+            <ScrollArea className="h-[400px] w-full overflow-x-auto">
+              <Table className="table-fixed w-full min-w-[740px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[90px] shrink-0">Symbol</TableHead>
@@ -180,10 +180,10 @@ export function SignalBoard() {
                           {(signal.display_symbol || signal.symbol).replace(".NS", "")}
                         </TableCell>
                         <TableCell>{getSignalBadge(signal.signal)}</TableCell>
-                        <TableCell className="text-right">₹{formatINR(signal.current_price)}</TableCell>
-                        <TableCell className="text-right">₹{formatINR(signal.entry)}</TableCell>
-                        <TableCell className="text-right text-red-600">₹{formatINR(signal.stop)}</TableCell>
-                        <TableCell className="text-right text-green-600">₹{formatINR(signal.target)}</TableCell>
+                        <TableCell className="text-right">{signal.current_price != null ? `₹${formatINR(signal.current_price)}` : "-"}</TableCell>
+                        <TableCell className="text-right">{signal.entry != null ? `₹${formatINR(signal.entry)}` : "-"}</TableCell>
+                        <TableCell className="text-right text-red-600">{signal.stop != null ? `₹${formatINR(signal.stop)}` : "-"}</TableCell>
+                        <TableCell className="text-right text-green-600">{signal.target != null ? `₹${formatINR(signal.target)}` : "-"}</TableCell>
                         <TableCell className="text-right">
                           {signal.metrics?.rsi != null ? signal.metrics.rsi.toFixed(1) : "-"}
                         </TableCell>

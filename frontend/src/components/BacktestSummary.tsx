@@ -94,14 +94,14 @@ export function BacktestSummary() {
           <Button
             variant={variant === "best5" ? "default" : "outline"}
             size="sm"
-            onClick={() => setVariant("best5")}
+            onClick={() => { setVariant("best5"); setData(null); }}
           >
             Top 5 (best)
           </Button>
           <Button
             variant={variant === "first5" ? "default" : "outline"}
             size="sm"
-            onClick={() => setVariant("first5")}
+            onClick={() => { setVariant("first5"); setData(null); }}
           >
             First 5 (Nifty)
           </Button>

@@ -26,9 +26,9 @@ export function Layout() {
   }, [darkMode]);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="h-screen flex flex-col bg-background">
       <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container flex h-14 items-center justify-between px-4">
+        <div className="container max-w-screen-2xl flex h-14 items-center justify-between px-4">
           <div className="flex items-center gap-4">
             <Link to="/" className="flex items-center gap-2 hover:opacity-90">
               <TrendingUp className="h-6 w-6 text-primary" />
@@ -75,7 +75,7 @@ export function Layout() {
           </Button>
         </div>
       </header>
-      <main className="container px-4 py-6">
+      <main className="w-full px-4 py-4 flex-1 overflow-y-auto">
         <Outlet />
       </main>
     </div>

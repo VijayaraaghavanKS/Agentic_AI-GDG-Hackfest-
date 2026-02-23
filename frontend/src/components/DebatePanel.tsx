@@ -103,20 +103,20 @@ export function DebatePanel({ bull, bear, selectedStepIndex }: DebatePanelProps)
   const selectedLabel = selectedStepIndex != null ? STEP_LABELS[selectedStepIndex] ?? null : null;
 
   return (
-    <Card>
+    <Card className="overflow-hidden h-full flex flex-col">
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="text-lg font-semibold flex items-center gap-2">
           <Swords className="h-5 w-5" />
           AI Investment Debate
         </CardTitle>
         {selectedLabel && (
-          <span className="text-xs font-mono text-muted-foreground">
+          <span className="text-xs font-mono text-muted-foreground truncate ml-2">
             Selected: <span className="text-foreground">{selectedLabel}</span>
           </span>
         )}
       </CardHeader>
-      <CardContent className="p-0">
-        <div className="grid grid-cols-2 divide-x">
+      <CardContent className="p-0 flex-1 overflow-y-auto">
+        <div className="grid grid-cols-1 sm:grid-cols-2 sm:divide-x">
           <ThesisPanel
             type="bull"
             points={bull?.points || []}

@@ -30,12 +30,10 @@ All trades are paper trades. No real money involved.`,
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   const sendMessage = async (overrideMessage?: string) => {
@@ -52,6 +50,10 @@ All trades are paper trades. No real money involved.`,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: userMessage }),
       });
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => `HTTP ${res.status}`);
+        throw new Error(errorText);
+      }
       const data = await res.json();
       setMessages((prev) => [
         ...prev,
@@ -93,7 +95,7 @@ All trades are paper trades. No real money involved.`,
         </a>
       </CardHeader>
       <CardContent className="flex-1 flex flex-col gap-3 p-4 pt-0">
-        <ScrollArea className="flex-1 pr-4" ref={scrollRef}>
+        <ScrollArea className="flex-1 pr-4">
           <div className="space-y-4">
             {messages.map((msg, i) => (
               <div
@@ -155,6 +157,7 @@ All trades are paper trades. No real money involved.`,
                 </div>
               </div>
             )}
+            <div ref={endRef} />
           </div>
         </ScrollArea>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">

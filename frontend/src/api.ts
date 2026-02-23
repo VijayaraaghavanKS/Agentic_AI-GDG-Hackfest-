@@ -2,16 +2,16 @@ const API_BASE = "";
 
 export async function runAnalysis(ticker: string) {
   let t = ticker.trim().toUpperCase();
-  if (!t.startsWith("^") && !t.includes(".")) t = `${t}.NS`;
+  // No need to add .NS — server handles that
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 300_000);
 
   try {
-    const res = await fetch(`${API_BASE}/api/chat`, {
+    const res = await fetch(`${API_BASE}/api/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: `Analyze ${t}` }),
+      body: JSON.stringify({ ticker: t }),
       signal: controller.signal,
     });
     if (!res.ok) throw new Error(`API error: ${res.status}`);

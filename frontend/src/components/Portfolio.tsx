@@ -72,7 +72,9 @@ export function Portfolio() {
     setError(null);
     try {
       const res = await fetch("/api/portfolio");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json();
+      if (d.status !== "success") throw new Error(d.error_message || "Portfolio load failed");
       setData(d);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -134,14 +136,14 @@ export function Portfolio() {
                 <div className="p-3 bg-muted rounded-lg">
                   <p className="text-xs text-muted-foreground">Net Profit</p>
                   <p className={cn("text-lg font-semibold", data.net_profit_inr >= 0 ? "text-green-600" : "text-red-600")}>
-                    {formatINR(data.net_profit_inr)} ({data.net_profit_pct.toFixed(2)}%)
+                    {formatINR(data.net_profit_inr)} ({(data.net_profit_pct ?? 0).toFixed(2)}%)
                   </p>
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-3 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
                 <div className="flex flex-col">
                   <span className="text-muted-foreground">Max Drawdown</span>
-                  <span className="font-medium text-red-600">{data.max_drawdown_pct.toFixed(2)}%</span>
+                  <span className="font-medium text-red-600">{(data.max_drawdown_pct ?? 0).toFixed(2)}%</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-muted-foreground">Realized P&L</span>
@@ -171,26 +173,26 @@ export function Portfolio() {
                         {formatINR(pos.unrealized_pnl)}
                       </Badge>
                     </div>
-                    <div className="grid grid-cols-4 gap-2 text-xs">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                       <div>
                         <span className="text-muted-foreground">Qty</span>
                         <p className="font-medium">{pos.qty}</p>
                       </div>
                       <div>
                         <span className="text-muted-foreground">Entry</span>
-                        <p className="font-medium">₹{pos.entry.toFixed(2)}</p>
+                        <p className="font-medium">₹{(pos.entry ?? 0).toFixed(2)}</p>
                       </div>
                       <div>
                         <span className="text-muted-foreground">Stop</span>
-                        <p className="font-medium text-red-600">₹{pos.stop.toFixed(2)}</p>
+                        <p className="font-medium text-red-600">₹{(pos.stop ?? 0).toFixed(2)}</p>
                       </div>
                       <div>
                         <span className="text-muted-foreground">Target</span>
-                        <p className="font-medium text-green-600">₹{pos.target.toFixed(2)}</p>
+                        <p className="font-medium text-green-600">₹{(pos.target ?? 0).toFixed(2)}</p>
                       </div>
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      Current: ₹{pos.current_price.toFixed(2)} | Value: {formatINR(pos.market_value)}
+                      Current: ₹{(pos.current_price ?? 0).toFixed(2)} | Value: {formatINR(pos.market_value)}
                     </div>
                   </div>
                 ))

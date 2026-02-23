@@ -40,11 +40,11 @@ function parseTrade(text: string): TradeData {
 
   return {
     ticker: g("Ticker"),
-    action: (g("Decision") || g("Action"))?.toUpperCase() ?? null,
+    action: (g("Verdict") || g("Action") || g("Signal"))?.toUpperCase() ?? null,
     entry: num("Entry") ?? num("Entry Price"),
-    stop: num("Stop") ?? num("Stop Loss"),
+    stop: num("Stop Loss") ?? num("Stop"),
     target: num("Target"),
-    riskReward: num("Risk Reward"),
+    riskReward: num("Risk Reward") ?? num("Risk Reward Ratio"),
     regime: g("Regime"),
     conviction: num("Conviction"),
     killed,
@@ -80,23 +80,61 @@ function parsePipelineSteps(text: string, backendSteps?: StepData[] | null): Ste
 
   // Prefer backend-provided step data (structured from server)
   if (Array.isArray(backendSteps) && backendSteps.length >= names.length) {
-    return backendSteps.map((step) => ({
-      status: step.status || "pending",
-      summary: step.summary || null,
-      output: step.output || null,
-      duration: null,
-    }));
+    // Use backend status but ALSO check text patterns as fallback
+    // (the LLM may produce output under the root agent's name that maps to a
+    //  specific step but isn't attributed to a sub-agent in the event stream)
+    const patterns: Record<string, RegExp> = {
+      "Regime Analyst": /regime[:\s]*(BULL|BEAR|SIDEWAYS)|market regime|regime_suitability/i,
+      "Stock Scanner": /scan_watchlist|breakout|oversold|stocks_scanned|signal_counts|rsi[:\s]*\d|above_50dma|support_zone/i,
+      "Dividend Scanner": /dividend|yield|ex.?date/i,
+      "Debate (Bull vs Bear)": /bull.*case|bear.*case|bull_thesis|bear_thesis|cio_decision|debate|bull.*advocate|bear.*advocate/i,
+      "Trade Executor": /entry.*(?:price)?[:\s]*[\d,.]+|stop.*loss[:\s]*[\d,.]+|target[:\s]*[\d,.]+|risk.?reward|trade.*plan|check_risk|paper.*trade/i,
+      "Portfolio Manager": /portfolio|holdings|cash.*(?:balance|available)|unrealized|positions/i,
+      "Autonomous Flow": /autonomous|trading.*loop|scan.*execute|auto.*trade/i,
+    };
+
+    return backendSteps.map((step, i) => {
+      const name = names[i] || "";
+      let status = step.status || "pending";
+      let summary = step.summary || null;
+      const output = step.output || null;
+
+      // If backend says pending but the text contains evidence of this step, upgrade
+      if (status === "pending" && patterns[name]?.test(text)) {
+        status = "complete";
+        if (name === "Regime Analyst") {
+          const regime = text.match(/regime[:\s]*(BULL|BEAR|SIDEWAYS)/i);
+          summary = regime ? `Market regime: ${regime[1]}` : "Regime analyzed";
+        } else if (name === "Trade Executor") {
+          if (/REJECTED|SKIPPED|killed/i.test(text)) {
+            status = "flagged";
+            const reason = text.match(/(?:Reason|Kill Reason):\s*([^\n]+)/i);
+            summary = reason ? `REJECTED: ${reason[1].slice(0, 60)}` : "Trade rejected";
+          } else {
+            const action = text.match(/(?:Decision|Action|Verdict|Signal):\s*(\w+)/i);
+            summary = action ? `Decision: ${action[1]}` : "Trade evaluated";
+          }
+        } else if (name === "Debate (Bull vs Bear)") {
+          const verdict = text.match(/(?:Verdict|Decision):\s*(BUY|SELL|HOLD)/i);
+          summary = verdict ? `Verdict: ${verdict[1]}` : "Debate complete";
+        } else {
+          summary = "Complete";
+        }
+      }
+
+      return { status, summary, output, duration: null } as StepData;
+    });
   }
 
-  // Fallback: parse agent output patterns from the reply text
+  // Fallback: pure text-based parsing
   return names.map((name) => {
     const patterns: Record<string, RegExp> = {
       "Regime Analyst": /regime[:\s]*(BULL|BEAR|SIDEWAYS)|market regime|regime_suitability/i,
-      "Stock Scanner": /scan_watchlist|breakout.*candidate|oversold.*bounce|stocks_scanned|signal_counts/i,
+      "Stock Scanner": /scan_watchlist|breakout|oversold|stocks_scanned|signal_counts|rsi[:\s]*\d|above_50dma|support_zone/i,
       "Dividend Scanner": /dividend|yield|ex.?date/i,
-      "Debate (Bull vs Bear)": /bull.*advocate|bear.*advocate|bull.*case|bear.*case|debate|conviction/i,
-      "Trade Executor": /entry.*price|stop.*loss|target|risk.?reward|paper.*trade|trade.*plan/i,
-      "Portfolio Manager": /portfolio|holdings|cash|unrealized|positions/i,
+      "Debate (Bull vs Bear)": /bull.*case|bear.*case|bull_thesis|bear_thesis|cio_decision|debate|bull.*advocate|bear.*advocate/i,
+      "Trade Executor": /entry.*(?:price)?[:\s]*[\d,.]+|stop.*loss[:\s]*[\d,.]+|target[:\s]*[\d,.]+|risk.?reward|trade.*plan|check_risk|paper.*trade/i,
+      "Portfolio Manager": /portfolio|holdings|cash.*(?:balance|available)|unrealized|positions/i,
       "Autonomous Flow": /autonomous|trading.*loop|scan.*execute|auto.*trade/i,
     };
     const matched = patterns[name]?.test(text);
@@ -112,9 +150,12 @@ function parsePipelineSteps(text: string, backendSteps?: StepData[] | null): Ste
           const reason = text.match(/(?:Reason|Kill Reason):\s*([^\n]+)/i);
           summary = reason ? `REJECTED: ${reason[1].slice(0, 60)}` : "Trade rejected/skipped";
         } else {
-          const action = text.match(/(?:Decision|Action|Signal):\s*(\w+)/i);
+          const action = text.match(/(?:Decision|Action|Verdict|Signal):\s*(\w+)/i);
           summary = action ? `Decision: ${action[1]}` : "Trade evaluated";
         }
+      } else if (name === "Debate (Bull vs Bear)") {
+        const verdict = text.match(/(?:Verdict|Decision):\s*(BUY|SELL|HOLD)/i);
+        summary = verdict ? `Verdict: ${verdict[1]}` : "Debate complete";
       } else {
         summary = "Complete";
       }
@@ -135,8 +176,8 @@ function parseBullBear(text: string, backendSteps?: StepData[] | null) {
     return section
       .split("\n")
       .map((l) => l.replace(/^[\s•\-\d.]+/, "").trim())
-      .filter((l) => l.length > 10 && l.length < 300)
-      .slice(0, 5);
+      .filter((l) => l.length > 10 && l.length < 300 && !/^(Conviction|BULL_THESIS|BEAR_THESIS|CIO_DECISION):/i.test(l))
+      .slice(0, 6);
   };
 
   const extractConviction = (section: string) => {
@@ -152,29 +193,53 @@ function parseBullBear(text: string, backendSteps?: StepData[] | null) {
   let bullText = "";
   let bearText = "";
 
-  // Debate output is at step index 3 (contains both bull and bear advocate output)
+  const tryExtractBullBear = (src: string) => {
+    let b = "", r = "";
+    // 1. Structured BULL_THESIS / BEAR_THESIS sections
+    const bullSection = src.match(/BULL_THESIS:\s*([\s\S]*?)(?=BEAR_THESIS:|CIO_DECISION:|$)/i);
+    const bearSection = src.match(/BEAR_THESIS:\s*([\s\S]*?)(?=CIO_DECISION:|BULL_THESIS:|$)/i);
+    if (bullSection) b = bullSection[1];
+    if (bearSection) r = bearSection[1];
+    // 2. CIO_DECISION format: Bull Summary / Bear Summary
+    if (!b) {
+      const bullSum = src.match(/Bull\s*Summary:\s*([\s\S]*?)(?=Bear\s*Summary:|Reasoning:|$)/i);
+      if (bullSum) b = bullSum[1];
+    }
+    if (!r) {
+      const bearSum = src.match(/Bear\s*Summary:\s*([\s\S]*?)(?=Reasoning:|Bull\s*Summary:|$)/i);
+      if (bearSum) r = bearSum[1];
+    }
+    // 3. Generic bull/bear keyword split
+    if (!b) {
+      const bullSplit = src.match(/(?:bull|bullish)[_ ]?(?:case|thesis|advocate|analysis)?[:\s]+([\s\S]*?)(?=(?:bear|bearish)[_ ]?(?:case|thesis|advocate|analysis|summary)|CIO_DECISION|$)/i);
+      b = bullSplit?.[1] || "";
+    }
+    if (!r) {
+      const bearSplit = src.match(/(?:bear|bearish)[_ ]?(?:case|thesis|advocate|analysis)?[:\s]+([\s\S]*?)(?=CIO_DECISION|Reasoning:|$)/i);
+      r = bearSplit?.[1] || "";
+    }
+    return { b, r };
+  };
+
+  // Debate output is at step index 3
   if (Array.isArray(backendSteps) && backendSteps.length >= 4) {
     const debateOutput = backendSteps[3]?.output || "";
-    // Try to split debate output into bull / bear sections
-    const bullSplit = debateOutput.match(/(?:bull|bullish|buy)[_ ]?(?:case|thesis|advocate)?[:\s]*([\s\S]*?)(?=(?:bear|bearish|sell)[_ ]?(?:case|thesis|advocate)|$)/i);
-    const bearSplit = debateOutput.match(/(?:bear|bearish|sell)[_ ]?(?:case|thesis|advocate)?[:\s]*([\s\S]*?)$/i);
-    bullText = bullSplit?.[1] || "";
-    bearText = bearSplit?.[1] || "";
-    // If only one section found, use the whole debate output for both
-    if (!bullText && !bearText && debateOutput) {
-      bullText = debateOutput;
-      bearText = debateOutput;
+    if (debateOutput) {
+      const { b, r } = tryExtractBullBear(debateOutput);
+      bullText = b;
+      bearText = r;
+    }
+    if (!bullText && !bearText && backendSteps[3]?.output) {
+      bullText = backendSteps[3].output;
+      bearText = backendSteps[3].output;
     }
   }
 
   // Fallback: parse from full reply text
-  if (!bullText) {
-    const bullMatch = text.match(/(?:BULL_THESIS|bull[_ ]?(?:case|advocate|thesis))[:\s]*([\s\S]*?)(?=BEAR_THESIS|bear[_ ]?(?:thesis|case|advocate)|CIO_DECISION|$)/i);
-    bullText = bullMatch?.[1] || "";
-  }
-  if (!bearText) {
-    const bearMatch = text.match(/(?:BEAR_THESIS|bear[_ ]?(?:case|advocate|thesis))[:\s]*([\s\S]*?)(?=CIO_DECISION|CIO Agent|FINAL|REGIME|Trade Executor|$)/i);
-    bearText = bearMatch?.[1] || "";
+  if (!bullText || !bearText) {
+    const { b, r } = tryExtractBullBear(text);
+    if (!bullText) bullText = b;
+    if (!bearText) bearText = r;
   }
 
   return {
@@ -267,11 +332,54 @@ export function Analyze() {
       const analysis = await runAnalysis(ticker);
       const reply = analysis?.reply || "";
       const backendSteps = analysis?.steps || null;
+      const backendTrade = analysis?.trade || null;
+      const backendDebate = analysis?.debate || null;
 
-      const tradeData = parseTrade(reply);
-      setTrade({ ...tradeData, ticker: tradeData.ticker || ticker });
-      setSteps(parsePipelineSteps(reply, backendSteps));
-      setDebate(parseBullBear(reply, backendSteps));
+      // Build full text from reply + all step outputs for richer parsing
+      let fullText = reply;
+      if (Array.isArray(backendSteps)) {
+        for (const step of backendSteps) {
+          if (step?.output) fullText += "\n\n" + step.output;
+        }
+      }
+
+      // Use structured trade data from server if available, else parse
+      if (backendTrade && (backendTrade.action || backendTrade.entry)) {
+        setTrade({
+          ticker: backendTrade.ticker || ticker,
+          action: backendTrade.action || null,
+          entry: backendTrade.entry ?? null,
+          stop: backendTrade.stop ?? null,
+          target: backendTrade.target ?? null,
+          riskReward: backendTrade.riskReward ?? null,
+          regime: backendTrade.regime || null,
+          conviction: backendTrade.conviction ?? null,
+          killed: backendTrade.killed || false,
+          killReason: backendTrade.killReason || null,
+          riskDetails: backendTrade.riskDetails || null,
+        });
+      } else {
+        const tradeData = parseTrade(fullText);
+        setTrade({ ...tradeData, ticker: tradeData.ticker || ticker });
+      }
+
+      setSteps(parsePipelineSteps(fullText, backendSteps));
+
+      // Use structured debate data from server if available, else parse
+      if (backendDebate?.bull || backendDebate?.bear) {
+        setDebate({
+          bull: backendDebate.bull ? {
+            points: backendDebate.bull.points || [],
+            conviction: backendDebate.bull.conviction ?? 0.5,
+          } : null,
+          bear: backendDebate.bear ? {
+            points: backendDebate.bear.points || [],
+            conviction: backendDebate.bear.conviction ?? 0.5,
+          } : null,
+        });
+      } else {
+        setDebate(parseBullBear(fullText, backendSteps));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setSteps(null);
@@ -286,7 +394,7 @@ export function Analyze() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-4 pb-2">
       {/* Ticker Input + Run */}
       <Card>
         <CardContent className="pt-6">
@@ -312,17 +420,17 @@ export function Analyze() {
       </Card>
 
       {/* Decision + Chart (top row) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-[480px]">
         <DecisionCard trade={trade} />
 
-        <Card>
+        <Card className="flex flex-col min-h-0">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-lg font-semibold flex items-center gap-2">
               <BarChart3 className="h-5 w-5" />
               {ticker} Chart
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3 overflow-hidden flex-1 flex flex-col min-h-0">
             <div className="flex flex-wrap items-center gap-2">
               {PERIODS.map((p, i) => (
                 <Button
@@ -361,7 +469,7 @@ export function Analyze() {
             ) : chartError ? (
               <p className="text-sm text-destructive py-8">{chartError}</p>
             ) : candles.length > 0 ? (
-              <MarketChart candles={candles} ticker={ticker} view={chartView} />
+              <MarketChart candles={candles} ticker={ticker} view={chartView} className="flex-1 min-h-0" />
             ) : (
               <p className="text-sm text-muted-foreground py-8">No chart data.</p>
             )}
@@ -370,7 +478,7 @@ export function Analyze() {
       </div>
 
       {/* Pipeline + Debate (bottom row) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-[400px]">
         <PipelineSteps
           steps={steps}
           selectedIndex={selectedStepIndex}

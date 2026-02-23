@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import {
   ComposedChart,
   Bar,
@@ -102,7 +102,7 @@ function CandlestickSVG({
   const hoverCandle = hoverIndex != null ? candles[hoverIndex] : null;
 
   return (
-    <svg width={width} height={height} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave} className="overflow-visible">
+    <svg width={width} height={height} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave} className="overflow-hidden">
       {/* Grid */}
       {priceTicks.slice(1, -1).map((p, i) => (
         <line
@@ -233,22 +233,27 @@ function CandlestickSVG({
           />
         );
       })}
-      {/* Tooltip (hover) - SVG rect + text */}
-      {hoverCandle && (
-        <g transform={`translate(${padding.left + (hoverIndex! / Math.max(candles.length - 1, 1)) * chartW},${padding.top})`}>
-          <rect x={-70} y={-78} width={140} height={72} rx={6} fill="hsl(var(--background))" stroke="hsl(var(--border))" strokeWidth={1} />
-          <text x={-62} y={-62} className="fill-muted-foreground" fontSize={10}>{hoverCandle.date}</text>
-          <text x={-62} y={-50} fontSize={10}>O {formatINR(hoverCandle.open)}  H {formatINR(hoverCandle.high)}</text>
-          <text x={-62} y={-38} fontSize={10}>L {formatINR(hoverCandle.low)}  C {formatINR(hoverCandle.close)}</text>
-          {(hoverCandle.sma20 != null || hoverCandle.rsi != null) && (
-            <text x={-62} y={-26} fontSize={10}>
-              {hoverCandle.sma20 != null ? `SMA20 ${formatINR(hoverCandle.sma20)} ` : ""}
-              {hoverCandle.rsi != null ? `RSI ${hoverCandle.rsi}` : ""}
-            </text>
-          )}
-          <text x={-62} y={-14} className="fill-muted-foreground" fontSize={10}>Vol: {hoverCandle.volume.toLocaleString()}</text>
-        </g>
-      )}
+      {/* Tooltip (hover) - SVG rect + text, clamped to stay in bounds */}
+      {hoverCandle && (() => {
+        const rawX = padding.left + (hoverIndex! / Math.max(candles.length - 1, 1)) * chartW;
+        const tipW = 150;
+        const tipX = Math.max(padding.left + tipW / 2, Math.min(rawX, width - padding.right - tipW / 2));
+        return (
+          <g transform={`translate(${tipX},${padding.top + 8})`}>
+            <rect x={-tipW / 2} y={0} width={tipW} height={76} rx={6} fill="hsl(var(--background))" stroke="hsl(var(--border))" strokeWidth={1} />
+            <text x={-tipW / 2 + 8} y={16} className="fill-muted-foreground" fontSize={10}>{hoverCandle.date}</text>
+            <text x={-tipW / 2 + 8} y={28} fontSize={10}>O {formatINR(hoverCandle.open)}  H {formatINR(hoverCandle.high)}</text>
+            <text x={-tipW / 2 + 8} y={40} fontSize={10}>L {formatINR(hoverCandle.low)}  C {formatINR(hoverCandle.close)}</text>
+            {(hoverCandle.sma20 != null || hoverCandle.rsi != null) && (
+              <text x={-tipW / 2 + 8} y={52} fontSize={10}>
+                {hoverCandle.sma20 != null ? `SMA20 ${formatINR(hoverCandle.sma20)} ` : ""}
+                {hoverCandle.rsi != null ? `RSI ${hoverCandle.rsi}` : ""}
+              </text>
+            )}
+            <text x={-tipW / 2 + 8} y={64} className="fill-muted-foreground" fontSize={10}>Vol: {hoverCandle.volume.toLocaleString()}</text>
+          </g>
+        );
+      })()}
     </svg>
   );
 }
@@ -257,7 +262,7 @@ function CandlestickSVG({
 function LineChartView({ data, volMax }: { data: Candle[] & { isUp?: boolean }[]; volMax: number }) {
   return (
     <>
-      <div className="h-[340px] w-full">
+      <div className="h-full min-h-[340px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={data} margin={{ top: 12, right: 12, left: 12, bottom: 8 }}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
@@ -346,6 +351,22 @@ function LineChartView({ data, volMax }: { data: Candle[] & { isUp?: boolean }[]
 
 export function MarketChart({ candles, ticker, view, className }: MarketChartProps) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dims, setDims] = useState({ width: 800, height: 420 });
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) setDims({ width: Math.round(width), height: Math.round(height) });
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const data = useMemo(() => {
     return candles.map((c) => ({
@@ -360,25 +381,17 @@ export function MarketChart({ candles, ticker, view, className }: MarketChartPro
 
   if (data.length === 0) return null;
 
-  function CandlestickWrapper({ width = 800, height = 420 }: { width?: number; height?: number }) {
-    return (
-      <CandlestickSVG
-        candles={candles}
-        width={width}
-        height={height}
-        onHover={setHoverIndex}
-        hoverIndex={hoverIndex}
-      />
-    );
-  }
-
   return (
-    <div className={cn("w-full", className)}>
+    <div className={cn("w-full h-full", className)}>
       {view === "candlestick" ? (
-        <div className="h-[420px] w-full" style={{ minHeight: 420 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <CandlestickWrapper />
-          </ResponsiveContainer>
+        <div ref={containerRef} className="h-full min-h-[420px] w-full overflow-hidden">
+          <CandlestickSVG
+            candles={candles}
+            width={dims.width}
+            height={dims.height}
+            onHover={setHoverIndex}
+            hoverIndex={hoverIndex}
+          />
         </div>
       ) : (
         <LineChartView data={data} volMax={volMax} />

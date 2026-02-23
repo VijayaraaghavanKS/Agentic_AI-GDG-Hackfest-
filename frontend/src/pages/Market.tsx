@@ -23,7 +23,7 @@ const DEFAULT_TICKER = "RELIANCE";
 export function Market() {
   const [ticker, setTicker] = useState(DEFAULT_TICKER);
   const [period, setPeriod] = useState("6mo");
-  const [interval, setInterval] = useState("1d");
+  const [chartInterval, setChartInterval] = useState("1d");
   const [limit] = useState(500);
   const [data, setData] = useState<{ candles: Candle[]; ticker: string } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,7 +36,7 @@ export function Market() {
     const params = new URLSearchParams({
       ticker: ticker.trim() || DEFAULT_TICKER,
       period,
-      interval,
+      interval: chartInterval,
       limit: String(limit),
     });
     fetch(`/api/market?${params}`)
@@ -58,7 +58,7 @@ export function Market() {
 
   useEffect(() => {
     fetchMarket();
-  }, [period, interval]);
+  }, [period, chartInterval]);
 
   const handleTickerSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,15 +66,15 @@ export function Market() {
   };
 
   return (
-    <div className="space-y-6">
-      <Card>
+    <div className="flex flex-col gap-4 min-h-[calc(100vh-7.5rem)]">
+      <Card className="flex flex-col flex-1 min-h-[500px]">
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="text-lg font-semibold flex items-center gap-2">
             <BarChart3 className="h-5 w-5" />
             Market Chart
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 flex-1 flex flex-col min-h-0">
           <form onSubmit={handleTickerSubmit} className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
               <label htmlFor="ticker" className="text-sm text-muted-foreground whitespace-nowrap">
@@ -106,9 +106,9 @@ export function Market() {
                 <Button
                   key={i.value}
                   type="button"
-                  variant={interval === i.value ? "default" : "outline"}
+                  variant={chartInterval === i.value ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setInterval(i.value)}
+                  onClick={() => setChartInterval(i.value)}
                 >
                   {i.label}
                 </Button>
@@ -146,9 +146,9 @@ export function Market() {
           ) : data && data.candles.length > 0 ? (
             <>
               <p className="text-sm text-muted-foreground">
-                {data.ticker} · {period} · {interval}
+                {data.ticker} · {period} · {chartInterval}
               </p>
-              <MarketChart candles={data.candles} ticker={data.ticker} view={chartView} />
+              <MarketChart candles={data.candles} ticker={data.ticker} view={chartView} className="flex-1 min-h-0" />
             </>
           ) : (
             <p className="text-sm text-muted-foreground py-8">No data. Change ticker or period and Apply.</p>

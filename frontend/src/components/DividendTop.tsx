@@ -19,6 +19,10 @@ interface DividendOpportunity {
   dividend_health?: string;
   suggested_entry?: number;
   suggested_stop?: number;
+  company?: string;
+  days_to_ex?: number;
+  dividend_yield_pct?: number;
+  current_price?: number;
 }
 
 interface DividendData {
@@ -90,13 +94,14 @@ export function DividendTop() {
             <p className="text-sm text-muted-foreground mb-3">
               {data?.opportunities_count ?? 0} opportunities — ask in chat to backtest or paper trade.
             </p>
-            <ScrollArea className="h-[220px] rounded-md border">
-              <Table>
+            <ScrollArea className="h-[220px] rounded-md border overflow-x-auto">
+              <Table className="table-fixed w-full min-w-[520px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Symbol</TableHead>
                     <TableHead>Health</TableHead>
                     <TableHead>Ex-Date</TableHead>
+                    <TableHead className="text-right">Yield %</TableHead>
                     <TableHead className="text-right">Entry</TableHead>
                     <TableHead className="text-right">Stop</TableHead>
                   </TableRow>
@@ -104,9 +109,10 @@ export function DividendTop() {
                 <TableBody>
                   {opportunities.slice(0, 8).map((o) => (
                     <TableRow key={o.symbol}>
-                      <TableCell className="font-medium">{o.symbol}</TableCell>
+                      <TableCell className="font-medium" title={o.company}>{o.symbol?.replace('.NS', '') ?? o.symbol}</TableCell>
                       <TableCell>{o.dividend_health ?? "-"}</TableCell>
-                      <TableCell>{o.ex_date ?? "-"}</TableCell>
+                      <TableCell>{o.ex_date ?? "-"}{o.days_to_ex != null ? ` (${o.days_to_ex}d)` : ""}</TableCell>
+                      <TableCell className="text-right">{o.dividend_yield_pct != null ? `${o.dividend_yield_pct.toFixed(1)}%` : "-"}</TableCell>
                       <TableCell className="text-right">{formatINR(o.suggested_entry)}</TableCell>
                       <TableCell className="text-right">{formatINR(o.suggested_stop)}</TableCell>
                     </TableRow>

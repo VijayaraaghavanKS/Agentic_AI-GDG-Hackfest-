@@ -86,7 +86,7 @@ export function PipelineSteps({ steps, selectedIndex, onSelectStep }: PipelineSt
   const hasAnyOutput = data.some((d) => d.output);
 
   return (
-    <Card>
+    <Card className="overflow-hidden h-full flex flex-col">
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="text-lg font-semibold flex items-center gap-2">
           <Workflow className="h-5 w-5" />
@@ -101,7 +101,7 @@ export function PipelineSteps({ steps, selectedIndex, onSelectStep }: PipelineSt
           </span>
         </div>
       </CardHeader>
-      <CardContent className="space-y-1">
+      <CardContent className="space-y-1 flex-1 overflow-y-auto">
         {data.map((d, i) => {
           const selected = selectedIndex === i;
           const clickable = Boolean(d.output);
