@@ -144,6 +144,7 @@ def detect_breakout(
     is_breakout = close > prev_20d_high and volume_ratio > 1.2 and above_50dma
 
     atr = compute_atr(highs, lows, closes)
+    rsi = compute_rsi(closes, period=14)
 
     return {
         "status": "success",
@@ -154,5 +155,6 @@ def detect_breakout(
         "above_50dma": above_50dma,
         "dma_50": round(dma_50, 2),
         "atr": round(atr, 2),
+        "rsi": rsi,
         "is_breakout": is_breakout,
     }

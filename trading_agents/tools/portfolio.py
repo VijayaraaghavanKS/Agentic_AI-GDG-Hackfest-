@@ -54,13 +54,20 @@ def _parse_opened_at(opened_at: str) -> datetime | None:
 
 
 def _latest_bar(symbol: str) -> Dict:
+    """Fetch latest bar for a symbol, using per-call cache to avoid duplicate yfinance requests."""
+    # Check cache first (populated within the same summary/refresh cycle)
+    if symbol in _price_cache:
+        return _price_cache[symbol]
     try:
         data = fetch_stock_data(symbol=symbol, days=30)
     except Exception as exc:
-        return {"status": "error", "error_message": f"Quote fetch exception for {symbol}: {exc}"}
+        result = {"status": "error", "error_message": f"Quote fetch exception for {symbol}: {exc}"}
+        _price_cache[symbol] = result
+        return result
     if data.get("status") != "success":
+        _price_cache[symbol] = data
         return data
-    return {
+    result = {
         "status": "success",
         "close": float(data["closes"][-1]),
         "high": float(data["highs"][-1]),
@@ -68,6 +75,12 @@ def _latest_bar(symbol: str) -> Dict:
         "trade_date": str(data["last_trade_date"]),
         "fetched_at_ist": data.get("fetched_at_ist"),
     }
+    _price_cache[symbol] = result
+    return result
+
+
+# Per-call price cache — cleared at the start of each refresh/summary cycle
+_price_cache: Dict = {}
 
 
 def _record_equity_snapshot(
@@ -103,6 +116,7 @@ def refresh_portfolio_positions(max_hold_days: int = MAX_HOLD_DAYS) -> Dict:
     Exit priority is conservative when both target and stop are hit in one bar:
     STOP_HIT is applied before TARGET_HIT.
     """
+    _price_cache.clear()
     state = load_portfolio()
     if not state.open_positions:
         return {
@@ -209,6 +223,7 @@ def refresh_portfolio_positions(max_hold_days: int = MAX_HOLD_DAYS) -> Dict:
 
 def get_portfolio_summary() -> Dict:
     """Return portfolio summary with mark-to-market valuation and drawdown stats."""
+    _price_cache.clear()
     refresh_portfolio_positions()
     p = load_portfolio()
 

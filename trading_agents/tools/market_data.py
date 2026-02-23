@@ -1,15 +1,29 @@
-"""Live NSE market data fetching via yfinance."""
+"""Live NSE market data fetching via yfinance.
+
+Includes production-grade validation:
+- NaN scrubbing on all price/volume arrays
+- Minimum 60 trading days required (prevents stale/thin data)
+- Freshness metadata for audit trail
+"""
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, timedelta, timezone
 
 IST = timezone(timedelta(hours=5, minutes=30))
-from typing import Dict
+from typing import Dict, List
 
 import yfinance as yf
 
 from trading_agents.config import DATA_LOOKBACK_DAYS
+
+_MIN_TRADING_DAYS = 60
+
+
+def _scrub_nans(values: List[float], fallback: float = 0.0) -> List[float]:
+    """Replace NaN/Inf values with fallback, ensuring all entries are finite."""
+    return [round(float(v), 2) if math.isfinite(v) else fallback for v in values]
 
 
 def fetch_index_data(symbol: str = "^NSEI", days: int = DATA_LOOKBACK_DAYS) -> Dict:
@@ -31,15 +45,17 @@ def fetch_index_data(symbol: str = "^NSEI", days: int = DATA_LOOKBACK_DAYS) -> D
             "error_message": f"No data returned for '{symbol}'. Market may be closed or symbol invalid.",
         }
 
-    closes = [round(float(v), 2) for v in hist["Close"].dropna().tolist()]
-    highs = [round(float(v), 2) for v in hist["High"].dropna().tolist()]
-    lows = [round(float(v), 2) for v in hist["Low"].dropna().tolist()]
-    volumes = [int(v) for v in hist["Volume"].dropna().tolist()]
+    closes = _scrub_nans(hist["Close"].tolist())
+    highs = _scrub_nans(hist["High"].tolist(), fallback=closes[-1] if closes else 0)
+    lows = _scrub_nans(hist["Low"].tolist(), fallback=closes[-1] if closes else 0)
+    volumes = [int(v) if math.isfinite(v) else 0 for v in hist["Volume"].tolist()]
 
-    if len(closes) < 60:
+    # Filter out days where close is 0 (bad data)
+    valid_closes = [c for c in closes if c > 0]
+    if len(valid_closes) < _MIN_TRADING_DAYS:
         return {
             "status": "error",
-            "error_message": f"Only {len(closes)} trading days available for '{symbol}'. Need at least 60.",
+            "error_message": f"Only {len(valid_closes)} valid trading days for '{symbol}'. Need at least {_MIN_TRADING_DAYS}.",
         }
 
     last_ts = str(hist.index[-1])

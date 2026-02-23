@@ -151,15 +151,18 @@ def scan_opportunities_for_regime() -> Dict:
         
         candidates = []
         for opp in scan.get("top_opportunities", [])[:5]:
+            entry_price = opp.get("suggested_entry") or opp.get("current_price", 0)
+            stop_price = opp.get("suggested_stop", 0)
+            target_price = round(entry_price + 2 * (entry_price - stop_price), 2) if entry_price and stop_price else 0
             candidates.append({
                 "symbol": opp.get("symbol"),
                 "company": opp.get("company"),
-                "entry": opp.get("latest_close"),
-                "stop": opp.get("suggested_stop"),
-                "target": round(opp.get("latest_close", 0) + 2 * (opp.get("latest_close", 0) - opp.get("suggested_stop", 0)), 2),
+                "entry": entry_price,
+                "stop": stop_price,
+                "target": target_price,
                 "ex_date": opp.get("ex_date"),
                 "days_to_ex": opp.get("days_to_ex"),
-                "trend_strength": opp.get("trend_strength"),
+                "dividend_yield": opp.get("dividend_yield"),
             })
         
         return {
@@ -322,8 +325,8 @@ def execute_confirmed_trade(symbol: str, entry: float, stop: float, target: floa
     # Execute the trade
     result = execute_paper_trade(symbol=symbol, entry=entry, stop=stop, target=target, qty=qty)
     
-    if result.get("status") == "SKIPPED":
-        return {"status": "error", "message": result.get("reason", "Trade skipped"), "details": result}
+    if result.get("status") in ("REJECTED", "SKIPPED"):
+        return {"status": "error", "message": result.get("reason", "Trade rejected by risk engine"), "details": result}
     
     # Get updated portfolio
     portfolio = get_portfolio_summary()
@@ -392,7 +395,7 @@ def check_trading_loop_status() -> Dict:
                     "symbol": p.get("symbol"),
                     "qty": p.get("qty"),
                     "entry": p.get("entry"),
-                    "current_pnl": p.get("unrealized_pnl_inr"),
+                    "current_pnl": p.get("unrealized_pnl"),
                 }
                 for p in open_positions
             ],

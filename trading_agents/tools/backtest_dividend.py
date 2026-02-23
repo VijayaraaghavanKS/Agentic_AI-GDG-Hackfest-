@@ -116,11 +116,11 @@ def backtest_dividend_momentum(
         if ex_date.tzinfo is not None:
             ex_date = ex_date.replace(tzinfo=None)
 
-        # Sell date = last trading day strictly before ex_date
+        # Sell date = sell_days_before_ex trading days before ex_date
         before_ex = trading_days[trading_days < ex_date]
-        if len(before_ex) == 0:
+        if len(before_ex) < sell_days_before_ex:
             continue
-        sell_date = before_ex[-1]
+        sell_date = before_ex[-sell_days_before_ex]
         try:
             sell_idx = trading_days_list.index(sell_date)
         except ValueError:

@@ -506,7 +506,7 @@ scanner_agent = Agent(
         "recent news-driven price moves. Interpret headlines; recommend only material news.\n\n"
         "3. OVERSOLD BOUNCE (for SIDEWAYS / BEAR): Use scan_oversold_bounce to find "
         "stocks with RSI <= 35 (oversold), often below 50-DMA. Strategy: buy the dip, "
-        "tight stop (e.g. entry - 0.8*ATR), target mean reversion. When presenting "
+        "tight stop (e.g. entry - 0.6*ATR), target mean reversion. When presenting "
         "candidates, say the user can 'implement' or 'paper trade [symbol]' to execute via trade_executor.\n\n"
         "4. BACKTEST OVERSOLD: Use backtest_oversold_bounce(symbol) for one stock, or "
         "backtest_oversold_nifty50() for the watchlist.\n"

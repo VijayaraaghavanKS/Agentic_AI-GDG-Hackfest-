@@ -78,9 +78,6 @@ def analyze_regime(index_symbol: str = DEFAULT_INDEX) -> Dict:
             "Avoid aggressive breakout chasing; use tight stops.",
         ]
 
-    if is_bull:
-        strategy_suggestions = ["Use scan_watchlist_breakouts for breakout candidates."]
-
     return {
         "status": "success",
         "regime": regime,

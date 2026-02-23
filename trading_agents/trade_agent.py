@@ -1,4 +1,4 @@
-"""Trade execution sub-agent -- calculates plans and executes paper trades."""
+"""Trade execution sub-agent -- calculates plans, enforces risk limits, and executes paper trades."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from trading_agents.tools.paper_trading import (
     calculate_trade_plan_from_entry_stop,
     execute_paper_trade,
 )
+from trading_agents.tools.risk_tool import enforce_risk_limits
 
 
 def plan_trade(symbol: str, close: float, atr: float) -> Dict:
@@ -45,6 +46,33 @@ def plan_trade_from_dividend(symbol: str, entry: float, stop: float) -> Dict:
     return calculate_trade_plan_from_entry_stop(symbol=symbol, entry=entry, stop=stop)
 
 
+def check_risk(symbol: str, action: str, entry: float, atr: float,
+               conviction: float = 0.7, regime: str = "NEUTRAL",
+               target: float = 0.0) -> Dict:
+    """Run the deterministic risk engine on a proposed trade BEFORE execution.
+
+    Returns a validated trade with engine-computed stop, target, position size,
+    risk-reward ratio, and ACCEPTED/REJECTED status.  The LLM cannot override
+    this verdict.
+
+    Args:
+        symbol: Stock ticker.
+        action: BUY, SELL, or HOLD.
+        entry: Entry price.
+        atr: Average True Range.
+        conviction: Conviction score (0-1 or 0-100).
+        regime: Market regime (BULL/BEAR/SIDEWAYS/NEUTRAL).
+        target: Target price (0 = let engine compute 2R target).
+
+    Returns:
+        dict with all ValidatedTrade fields, status, and summary.
+    """
+    return enforce_risk_limits(
+        symbol=symbol, action=action, entry=entry, atr=atr,
+        conviction=conviction, regime=regime, target=target,
+    )
+
+
 def execute_trade(symbol: str, entry: float, stop: float, target: float, qty: int) -> Dict:
     """Execute a paper trade after validating risk rules.
 
@@ -65,21 +93,34 @@ trade_agent = Agent(
     name="trade_executor",
     model=GEMINI_MODEL,
     description=(
-        "Calculates trade plans with proper position sizing and executes paper trades. "
-        "Enforces risk rules: 1% risk per trade, max 3 open positions, min 1:2 R:R. "
-        "Supports generic plans (plan_trade) and scan-based entry/stop (plan_trade_from_dividend for dividend or oversold)."
+        "Calculates trade plans, enforces deterministic risk limits, and executes paper trades. "
+        "Risk engine: 1% risk per trade, ATR-based stops, contrarian regime penalty (50% size), "
+        "min 2:1 R:R, max 3 open positions. "
+        "Supports generic plans (plan_trade) and scan-based entry/stop (plan_trade_from_dividend)."
     ),
     instruction=(
-        "You are the Trade Executor. When asked to trade a stock, "
-        "first compute a plan, then present it before using execute_trade.\n\n"
-        "WHICH TOOL TO USE:\n"
-        "- When implementing a dividend pick: use plan_trade_from_dividend(symbol, suggested_entry, suggested_stop) from the dividend scan.\n"
-        "- When implementing an OVERSOLD BOUNCE pick (sideways/bear strategy): use plan_trade_from_dividend(symbol, close, suggested_stop) "
-        "with the oversold scan's close and suggested_stop (same tool; entry=close, stop=suggested_stop).\n"
-        "- For other trades (breakout, momentum): use plan_trade(symbol, close, atr) with current price and ATR.\n\n"
+        "You are the Trade Executor with a built-in Risk Engine.\n\n"
+        "WORKFLOW (MANDATORY ORDER):\n"
+        "1. PLAN: compute a plan (plan_trade or plan_trade_from_dividend).\n"
+        "2. RISK CHECK: call check_risk(symbol, action, entry, atr, conviction, regime, target) "
+        "   to get the deterministic risk engine verdict.  If status is REJECTED, STOP — "
+        "   present the rejection reason and do NOT execute.\n"
+        "3. PRESENT: show the plan + risk verdict to the user.\n"
+        "4. EXECUTE: only after step 2 returns ACCEPTED, call execute_trade.\n\n"
+        "WHICH PLANNING TOOL TO USE:\n"
+        "- Dividend pick  → plan_trade_from_dividend(symbol, suggested_entry, suggested_stop)\n"
+        "- Oversold bounce → plan_trade_from_dividend(symbol, close, suggested_stop)\n"
+        "- Breakout/momentum → plan_trade(symbol, close, atr)\n\n"
+        "RISK ENGINE FIELDS (from check_risk):\n"
+        "- entry_price, stop_loss, target_price, position_size, risk_per_share\n"
+        "- risk_reward_ratio, total_risk, is_contrarian, killed, kill_reason\n"
+        "- The engine computes its own ATR-based stop; it may differ from the plan.\n"
+        "- Contrarian trades (BUY in BEAR) get 50% position size automatically.\n\n"
         "RULES:\n"
-        "Never execute without showing the plan first. Always mention: symbol, entry, stop, "
-        "target, qty, R:R ratio, and capital required. If risk rules block the trade, explain why."
+        "- NEVER execute without calling check_risk first.\n"
+        "- NEVER override the engine's REJECTED verdict.\n"
+        "- Always show: symbol, entry, stop, target, qty, R:R, capital required, "
+        "  and whether it's contrarian."
     ),
-    tools=[plan_trade, plan_trade_from_dividend, execute_trade],
+    tools=[plan_trade, plan_trade_from_dividend, check_risk, execute_trade],
 )
